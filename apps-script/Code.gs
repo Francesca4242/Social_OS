@@ -3,6 +3,7 @@
  *
  * Lives in Extensions → Apps Script of your Google Sheet, next to Index.html.
  * Deploy as a web app with "Execute as: Me" and "Who has access: Only myself".
+ * It only needs your spreadsheet and Google's place lookup (for the map). No email, no scheduled jobs.
  * See README.md for setup and for how the scores work.
  */
 
@@ -27,14 +28,6 @@ const EXTRA_COLUMNS = {
   notes: 'Notes'
 };
 
-// Mirrors the app's scoring (Index.html) for the weekly email. Keep the two in step.
-const SCORING = {
-  contactGoal: { 1: 4, 2: 12, 3: 30, 4: 90, 5: 150, 6: 365 },
-  seeMultiplier: { 1: 0.5, 2: 0.75, 3: 1, 4: 1.5, 5: 2, 6: 3 },
-  inviteGoal: { 1: 365, 2: 150, 3: 120, 4: 60, 5: 12, 6: 10 },
-  inviteSnoozeDays: 14, // someone you invited recently isn't suggested again for this long
-  nearKm: 30            // "near" a home base
-};
 const DEFAULT_PREFS = { bases: [], current: '', autoDistance: true, autoConfirm: true };
 
 // Used only when the spreadsheet is brand new (e.g. a friend setting up their own copy).
@@ -91,11 +84,9 @@ function getData() {
       rules: rules,
       geo: geo,
       sheetUrl: ss.getUrl() + '#gid=' + sheet.getSheetId(),
-      remindersOn: remindersOn_(),
       prefs: getPrefs_(),
       log: log,
       weeks: weeks,
-      email: userEmail_(),
       extraColumns: EXTRA_COLUMNS,
       version: APP_VERSION
     };
@@ -128,13 +119,8 @@ function checkSetup() {
   say('Formula columns (read-only in the app): ' + (d.columns.filter(c => c.computed).map(c => c.label).join(', ') || 'none'));
   say('Time taken (ms, cumulative): ' + JSON.stringify(d.timings) + ' · data size ' + Math.round(json.length / 1024) + ' KB');
   say('Tiers set up: ' + Object.keys(d.rules.tiers).join(', ') + ' · distance bands: ' + Object.keys(d.rules.proximity).join(', '));
-  say('Reminder emails: ' + (d.remindersOn ? 'on' : 'off'));
   say('If the web app still shows something different, deploy a new version: Deploy → Manage deployments → ✏️ → Version: New version.');
   return lines;
-}
-
-function userEmail_() {
-  try { return Session.getEffectiveUser().getEmail(); } catch (e) { return ''; }
 }
 
 function getPrefs_() {
@@ -568,251 +554,10 @@ function saveWeek(weekJson) {
   }
 }
 
-/* ───────────────────────── Emails & reminders ───────────────────────── */
-
-function isYes_(v) {
-  const s = String(v || '').trim().toLowerCase();
-  return !!s && ['no', 'n', 'false', '0', 'none', '-', 'nope'].indexOf(s) < 0;
-}
-
-// When there are two address columns, prefer the one that looks postal (has a number in it).
-function postalAddress_(f) {
-  const options = Object.keys(f).filter(k => /address/.test(k) && !/allergy/.test(k)).map(k => String(f[k] || '').trim()).filter(Boolean);
-  return options.find(a => /\d/.test(a)) || options[0] || '';
-}
+/* ───────────────────────── Helpers ───────────────────────── */
 
 function htmlEsc_(s) {
   return String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
-
-function christmasRows_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const friends = readFriends_(mainSheet_(ss), ss.getSpreadsheetTimeZone()).friends;
-  return friends
-    .filter(f => isYes_(f.christmascard) || isYes_(f.christmasgifteffort))
-    .sort((a, b) => (parseInt(a.tier, 10) || 9) - (parseInt(b.tier, 10) || 9) || String(a.name).localeCompare(b.name));
-}
-
-function emailChristmasList() {
-  const rows = christmasRows_();
-  const to = Session.getEffectiveUser().getEmail();
-  const cards = rows.filter(f => isYes_(f.christmascard));
-  const gifts = rows.filter(f => isYes_(f.christmasgifteffort));
-  const td = 'style="padding:8px 10px;border-bottom:1px solid #eee;vertical-align:top;font-size:14px"';
-  const body = rows.map(f => '<tr>' +
-    '<td ' + td + '><b>' + htmlEsc_(f.name) + '</b><br><span style="color:#888">Tier ' + htmlEsc_(f.tier) + '</span></td>' +
-    '<td ' + td + '>' + (isYes_(f.christmascard) ? '💌' : '') + '</td>' +
-    '<td ' + td + '>' + htmlEsc_(postalAddress_(f)).replace(/\n/g, '<br>') + '</td>' +
-    '<td ' + td + '>' + htmlEsc_(isYes_(f.christmasgifteffort) ? f.christmasgifteffort : '') + '</td>' +
-    '<td ' + td + '>' + htmlEsc_(f.futuregiftideas) + '</td>' +
-    '<td ' + td + '>' + htmlEsc_(f.giftslastbrought) + '</td>' +
-    '</tr>').join('');
-  const th = 'style="text-align:left;padding:8px 10px;background:#fff1ec;font-size:12px"';
-  const html = '<div style="font-family:Arial,sans-serif;color:#2b2118">' +
-    '<h2 style="margin:0 0 4px">🎄 Your Christmas list</h2>' +
-    '<p style="margin:0 0 16px;color:#666">' + cards.length + ' cards · ' + gifts.length + ' gifts. ' +
-    'The address CSV is attached for printing labels.</p>' +
-    '<table style="border-collapse:collapse;width:100%"><tr>' +
-    ['Friend', 'Card', 'Address', 'Gift effort', 'Gift ideas', 'Gifts last bought']
-      .map(h => '<th ' + th + '>' + h + '</th>').join('') +
-    '</tr>' + body + '</table></div>';
-  const csvCell = v => '"' + String(v || '').replace(/"/g, '""') + '"';
-  const csv = [['Name', 'Address', 'Card', 'Gift effort', 'Gift ideas']].concat(
-    rows.map(f => [f.name, postalAddress_(f), isYes_(f.christmascard) ? 'Yes' : '', f.christmasgifteffort, f.futuregiftideas])
-  ).map(r => r.map(csvCell).join(',')).join('\n');
-  MailApp.sendEmail({
-    to: to,
-    subject: '🎄 Christmas cards & presents: ' + cards.length + ' cards, ' + gifts.length + ' gifts',
-    htmlBody: html,
-    attachments: [Utilities.newBlob(csv, 'text/csv', 'christmas-addresses.csv')]
-  });
-  return 'Sent to ' + to;
-}
-
-// Accepts yyyy-mm-dd, dd/mm/yyyy, dd/mm, "14 March", "March 14".
-function parseDateParts_(raw) {
-  const s = String(raw || '').trim();
-  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-  const yr = v => v === null || v >= 100 ? v : v + (v > new Date().getFullYear() % 100 ? 1900 : 2000);
-  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (m) return { y: +m[1], m: +m[2] - 1, d: +m[3] };
-  m = /^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/.exec(s);
-  if (m) return { y: yr(m[3] ? +m[3] : null), m: +m[2] - 1, d: +m[1] };
-  m = /(\d{1,2})(?:st|nd|rd|th)?[\s\-\/.]+([a-z]{3})[a-z]*\.?(?:,?[\s\-\/.]+(\d{4}|\d{2}))?/i.exec(s);
-  if (m && months.indexOf(m[2].toLowerCase()) >= 0) return { y: yr(m[3] ? +m[3] : null), m: months.indexOf(m[2].toLowerCase()), d: +m[1] };
-  m = /([a-z]{3})[a-z]*\.?[\s\-\/.]+(\d{1,2})(?:st|nd|rd|th)?(?:,?[\s\-\/.]+(\d{4}|\d{2}))?/i.exec(s);
-  if (m && months.indexOf(m[1].toLowerCase()) >= 0) return { y: yr(m[3] ? +m[3] : null), m: months.indexOf(m[1].toLowerCase()), d: +m[2] };
-  return null;
-}
-
-function distanceKm_(a, b) {
-  const rad = x => x * Math.PI / 180;
-  const h = Math.pow(Math.sin(rad(b.lat - a.lat) / 2), 2) +
-    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.pow(Math.sin(rad(b.lng - a.lng) / 2), 2);
-  return 2 * 6371 * Math.asin(Math.sqrt(h));
-}
-
-// Distance → the Rules sheet's proximity bands (1 = another country … 6 = walking distance).
-// A place tag like "London" is only city-precise, so it never counts as closer than "same city".
-function distanceBand_(km, base, loc) {
-  const abroad = (base.country && loc.country && base.country !== loc.country) || km > 700;
-  const band = abroad ? 1 : km > 400 ? 2 : km > 30 ? 3 : km > 8 ? 4 : km > 1.5 ? 5 : 6;
-  return loc.fromTag ? Math.min(band, 4) : band;
-}
-
-function friendLocation_(f, geo) {
-  const addresses = Object.keys(f).filter(k => /address/.test(k) && !/allergy/.test(k)).map(k => String(f[k] || '').trim()).filter(Boolean);
-  const tags = String(f.placetags || '').split(/[,;]/).map(t => t.trim()).filter(Boolean);
-  const options = addresses.map(q => ({ q: q, fromTag: false })).concat(tags.map(q => ({ q: q, fromTag: true })));
-  for (let i = 0; i < options.length; i++) {
-    const g = geo[options[i].q.toLowerCase()];
-    if (g) return { lat: g.lat, lng: g.lng, country: g.country, fromTag: options[i].fromTag };
-  }
-  return null;
-}
-
-// The friends near your current home base who are most overdue a meet-up and haven't been invited lately.
-function inviteSuggestions_(friends, rules, geo, prefs, limit) {
-  const base = (prefs.bases || []).find(b => b.name === prefs.current);
-  if (!base) return [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const daysSince = raw => {
-    const p = parseDateParts_(raw);
-    return p && p.y ? Math.max(0, Math.round((today - new Date(p.y, p.m, p.d)) / 86400000)) : null;
-  };
-  return friends.map(f => {
-    const tier = Math.min(parseInt(f.tier, 10) || 0, 6);
-    const loc = tier >= 1 && friendLocation_(f, geo);
-    if (!loc) return null;
-    const km = distanceKm_(base, loc);
-    if (km > SCORING.nearKm) return null;
-    const band = distanceBand_(km, base, loc);
-    const plan = parseDateParts_(f.nextplandate);
-    if (plan && plan.y && new Date(plan.y, plan.m, plan.d) >= today) return null;
-    if (String(f.nextplan || '').trim() && !plan) return null;
-    const invited = daysSince(f.lastinvited);
-    if (invited !== null && invited < SCORING.inviteSnoozeDays) return null;
-    const tr = rules.tiers[tier] || {}, pr = rules.proximity[band] || {};
-    const seeGoal = Math.min(1095, (pr.inviteGoal || SCORING.inviteGoal[band]) * (tr.seeMultiplier || SCORING.seeMultiplier[tier]));
-    const seen = daysSince(f.lastseenvideocalled), called = daysSince(f.lastcalled);
-    const effective = [seen, called === null ? null : called * 2].filter(x => x !== null);
-    const ratio = effective.length ? Math.min.apply(null, effective) / seeGoal : 9;
-    if (ratio < 0.8) return null;
-    return { f: f, seen: seen, score: (7 - tier) * Math.min(ratio, 9) };
-  }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, limit);
-}
-
-// Friends past their contact goal, most important first (same idea as the app's "Message" list).
-function sayHiSuggestions_(friends, rules, limit) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const daysSince = raw => {
-    const p = parseDateParts_(raw);
-    return p && p.y ? Math.max(0, Math.round((today - new Date(p.y, p.m, p.d)) / 86400000)) : null;
-  };
-  return friends.map(f => {
-    const tier = Math.min(parseInt(f.tier, 10) || 0, 6);
-    if (tier < 1) return null;
-    const goal = (rules.tiers[tier] || {}).contactGoal || SCORING.contactGoal[tier];
-    const known = [f.lastcontacted, f.lastseenvideocalled, f.lastcalled].map(daysSince).filter(d => d !== null);
-    const last = known.length ? Math.min.apply(null, known) : null;
-    const ratio = last === null ? 9 : last / goal;
-    return ratio >= 1 ? { f: f, last: last, score: (7 - tier) * Math.min(ratio, 9) } : null;
-  }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, limit);
-}
-
-// Birthdays in the next two weeks, plus who to invite near your current home base.
-function emailWeeklyNudge(skipIfEmpty) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const tz = ss.getSpreadsheetTimeZone();
-  const friends = readFriends_(mainSheet_(ss), tz).friends;
-  const prefs = getPrefs_();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const soon = [];
-  friends.forEach(f => {
-    const b = parseDateParts_(f.birthdaydate);
-    if (!b) return;
-    let next = new Date(today.getFullYear(), b.m, b.d);
-    if (next < today) next = new Date(today.getFullYear() + 1, b.m, b.d);
-    const days = Math.round((next - today) / 86400000);
-    if (days <= 14) soon.push({ f: f, days: days, next: next, age: b.y && b.y > 1910 ? next.getFullYear() - b.y : null });
-  });
-  soon.sort((a, b) => a.days - b.days);
-  const rules = readRules_(ss);
-  const invites = inviteSuggestions_(friends, rules, readGeo_(ss), prefs, 5);
-  const inviteNames = invites.map(s => s.f.name);
-  const sayHi = sayHiSuggestions_(friends, rules, 8).filter(s => inviteNames.indexOf(s.f.name) < 0).slice(0, 5);
-  if (!soon.length && !invites.length && !sayHi.length && skipIfEmpty === true) return 'Nothing to send this week';
-  const hiItems = sayHi.map(s => '<li style="margin-bottom:10px"><b>' + htmlEsc_(s.f.name) + '</b>: ' +
-    (s.last === null ? 'no catch-ups logged yet' : s.last + ' days since you were in touch') + '</li>').join('');
-
-  const muted = s => '<br><span style="color:#777">' + s + '</span>';
-  const bdayItems = soon.map(s => '<li style="margin-bottom:10px"><b>' + htmlEsc_(s.f.name) + '</b>: ' +
-    Utilities.formatDate(s.next, tz, 'EEE d MMM') +
-    (s.days === 0 ? ' (today!)' : ' (in ' + s.days + ' day' + (s.days === 1 ? '' : 's') + ')') +
-    (s.age ? ', turns ' + s.age : '') +
-    (s.f.gifteffort ? muted('Gift effort: ' + htmlEsc_(s.f.gifteffort)) : '') +
-    (s.f.futuregiftideas ? muted('Ideas: ' + htmlEsc_(s.f.futuregiftideas)) : '') + '</li>').join('');
-  const inviteItems = invites.map(s => '<li style="margin-bottom:10px"><b>' + htmlEsc_(s.f.name) + '</b> (tier ' + htmlEsc_(s.f.tier) + '): ' +
-    (s.seen === null ? 'no meet-up logged yet' : 'last seen ' + s.seen + ' days ago') +
-    (s.f.likes ? muted('Likes: ' + htmlEsc_(s.f.likes)) : '') +
-    (s.f.allergydietaryrequirements ? muted('Diet: ' + htmlEsc_(s.f.allergydietaryrequirements)) : '') + '</li>').join('');
-
-  const weeks = readWeeks_(ss).sort((a, b) => a.week < b.week ? -1 : 1);
-  const latest = weeks[weeks.length - 1], before = weeks[weeks.length - 2];
-  const scoreLine = latest
-    ? '<p style="font-size:18px;margin:0 0 16px">💗 Friendship score: <b>' + latest.score + '</b>' +
-      (before ? ' (' + (latest.score >= before.score ? '▲ ' : '▼ ') + Math.abs(latest.score - before.score) + ' on the week before)' : '') + '</p>'
-    : '';
-  const parts = [];
-  if (sayHi.length) parts.push(sayHi.length + ' to get in touch with');
-  if (soon.length) parts.push(soon.length + ' birthday' + (soon.length === 1 ? '' : 's'));
-  if (invites.length) parts.push(invites.length + ' to invite near ' + prefs.current);
-  const to = Session.getEffectiveUser().getEmail();
-  MailApp.sendEmail({
-    to: to,
-    subject: '🫶 This week: ' + (parts.join(' · ') || 'all quiet'),
-    htmlBody: '<div style="font-family:Arial,sans-serif;color:#2b2118">' + scoreLine +
-      (hiItems ? '<h2>💬 Get in touch with</h2><ul style="padding-left:18px">' + hiItems + '</ul>' : '') +
-      '<h2>🎂 Birthdays coming up</h2><ul style="padding-left:18px">' + (bdayItems || '<li>None in the next two weeks.</li>') + '</ul>' +
-      (prefs.current
-        ? '<h2>💌 Who to invite near ' + htmlEsc_(prefs.current) + '</h2><ul style="padding-left:18px">' + (inviteItems || '<li>Everyone nearby is up to date.</li>') + '</ul>'
-        : '<p style="color:#777">Set a home base in the app to get invite suggestions here.</p>') +
-      '</div>'
-  });
-  return 'Sent to ' + to;
-}
-
-// Runs every morning once reminders are switched on in the app.
-function dailyJobs() {
-  const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
-  const now = new Date();
-  if (Utilities.formatDate(now, tz, 'MM-dd') === '11-25') emailChristmasList();
-  if (Utilities.formatDate(now, tz, 'u') === '1') emailWeeklyNudge(true); // Mondays
-}
-
-// Remembered in script properties, because listing triggers on every load is slow.
-function remindersOn_() {
-  const stored = PropertiesService.getScriptProperties().getProperty('remindersOn');
-  if (stored !== null) return stored === 'true';
-  try {
-    const on = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailyJobs');
-    PropertiesService.getScriptProperties().setProperty('remindersOn', String(on));
-    return on;
-  } catch (e) {
-    return false; // permission not granted yet: the app still loads, reminders just show as off
-  }
-}
-
-function setReminders(on) {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'dailyJobs')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-  if (on) ScriptApp.newTrigger('dailyJobs').timeBased().everyDays(1).atHour(8).create();
-  PropertiesService.getScriptProperties().setProperty('remindersOn', String(!!on));
-  return !!on;
 }
 
 /* ───────────────────────── First run ───────────────────────── */

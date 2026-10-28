@@ -3,7 +3,7 @@
 A private friendship app built on your own Google Sheet. Your contacts stay in your Google account. The app is just a nicer window onto the sheet.
 
 ```
-apps-script/Code.gs      ← server side (reads and writes your sheet, sends emails)
+apps-script/Code.gs      ← server side (reads and writes your sheet)
 apps-script/Index.html   ← the app itself
 launcher/                ← optional: gives you a proper home-screen icon
 ```
@@ -16,8 +16,7 @@ launcher/                ← optional: gives you a proper home-screen icon
 4. Replace everything in `Index.html` with `apps-script/Index.html`.
 5. **Deploy → Manage deployments → ✏️ (edit) → Version: New version → Deploy.** Your link stays the same.
    - Set **Execute as: Me** and **Who has access: Only myself**.
-6. Open the app. Google will ask for new permissions: sending email to you (Christmas and birthday lists), looking up places for the map, and scheduling the daily reminder. Approve them.
-7. On Today, tap **Turn on** for the Monday reminder email. That also switches on the Christmas list email on 25 November.
+6. Open the app. Google may ask for permission to use your spreadsheet and look up places for the map. Approve it. (If the app won't load, open your app link with `?check=1` on the end; it says what's wrong.)
 
 ### What changes in your sheet
 
@@ -33,7 +32,7 @@ launcher/                ← optional: gives you a proper home-screen icon
 - **Today** shows the **3 people most worth contacting**, with birthdays first. Tap **💬 Messaged**, **🤝 Saw**, **📅 Plan**, or **💤 Later** (hides them from the top 3 for 3 days).
 - **✅ Quick check-ins** collects everything waiting on a yes/no from you: did a plan happen, did an invite get a reply, and tier suggestions. It shows 3 at a time.
 - **⚡** (the floating button) logs anything else in seconds.
-- **The Monday email** lists who to get in touch with, upcoming birthdays, who to invite near your home base, and your friendship score. It's useful even in weeks you don't open the app.
+- **🗓️ Your week** at the top of Today opens itself on your first visit each week. It shows birthdays coming up, plans in the diary, who to try to see, who's due a catch-up near your home base, the Christmas cards (25 November to 20 December), and how many catch-ups you logged last week. Close it and it stays closed until the next week. There are no emails.
 - **Four tabs:** Today, Friends, Places (with the map inside), Dates. On a friend's page, the less-used sections stay folded until you tap them.
 - **Settings → 🎮 Game bits** turns off XP, levels, streaks, quests and badges if you'd rather keep it calm. Your friendship score stays either way.
 
@@ -82,7 +81,6 @@ Friends with no address or place tag keep the Proximity Score from your sheet. S
 
 - **📍 Places tab:** one section per home base (friends within 30 km) and per place tag, most overdue first.
 - **💌 Invite planner** (from Today, a place, or a friend's page): choose where, what (coffee, dinner…), how many, and optionally a tag. You get the most overdue friends, closest tiers first, with allergies, likes and dislikes shown. **Mark invited** logs it for everyone at once, and they're left off the to-book lists for 14 days.
-- **Monday email** (with reminders on): includes the top 5 people to invite near your current base.
 
 ## Reliability & tier check-ins
 
@@ -99,7 +97,6 @@ Reliability = (kept + said yes + 1) ÷ (kept + said yes + cancelled + no reply +
 
 - **Friendship score:** everyone's health averaged, with closer tiers counting more. It's saved weekly so you can see if you're improving. The chart starts the week you install this; there's no history before then.
 - **XP:** message 5, call 10, see someone 25, invite 5, book 10, plan happened +15, reconnect after 6+ months +20, birthday +10. You get 3 **weekly quests** (+30 each), a 🔥 **streak** for every week you earn 40+ XP, 10 **levels** from Hermit crab 🐚 to Mayor of friendship 👑, and 12 **badges**.
-- The Monday email includes your score and how it changed from the week before.
 
 ## Home-screen icon (optional)
 
@@ -133,7 +130,7 @@ When you improve the code later, friends need to paste in the new files themselv
 
 ## Privacy
 
-- Allergies, likes and dislikes are in their own **Food & preferences** section and aren't included in the Christmas list or email.
+- Allergies, likes and dislikes are in their own **Food & preferences** section and aren't included in the Christmas list.
 - With **"Only myself"** access, only you (signed in to Google) can open the app. Anyone else who gets the link sees a Google error page.
 - The app keeps a copy of your list in your phone's browser storage so it opens instantly. **Settings → Clear saved data** removes it.
 - Map lookups go through Google's geocoder from your own script. Map images come from OpenStreetMap, which only sees which map area is being viewed.

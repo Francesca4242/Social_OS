@@ -1183,8 +1183,50 @@
       `<button class="btn primary" data-act="tier-move" data-v="${s.to}" data-row="${f._row}">${s.dir === 'down' ? '⬇️' : '⬆️'} Tier ${s.to}</button><button class="btn" data-act="tier-keep" data-row="${f._row}">Keep</button>`)));
     const setup = (emoji, title, text, on, off) => `<div class="check-row"><div style="font-size:26px;width:36px;text-align:center">${emoji}</div><div class="grow"><b>${title}</b><div class="small muted">${text}</div></div>
       <button class="btn primary" data-act="${on}">Turn on</button><button class="btn" data-act="${off}" aria-label="No thanks">✕</button></div>`;
-    if (!S.data.remindersOn && !S.prefs.remindersPromptHidden) items.push(setup('📬', 'Monday reminder email', 'Who to get in touch with and upcoming birthdays, for busy weeks.', 'reminders-on', 'reminders-hide'));
     return items;
+  }
+
+  const CHRISTMAS_FROM = '11-25', CHRISTMAS_TO = '12-20'; // when Today shows the Christmas-cards reminder
+  function whenLabel(d) {
+    const n = daysBetween(today(), d);
+    return n === 0 ? 'today' : n === 1 ? 'tomorrow' : n < 7 ? d.toLocaleDateString('en-GB', { weekday: 'long' }) : fmtDate(d);
+  }
+
+  // A weekly round-up at the top of Today. It opens itself on your first visit each week.
+  function yourWeek() {
+    const t = today(), key = weekKey(t), start = weekStart(t);
+    const nameChip = (f, extra) => `<button class="chip tiny" data-open="${f._row}">${esc(f.name.split(' ')[0])}${extra ? ' · ' + extra : ''}</button>`;
+    const rows = [];
+    const add = (title, body) => rows.push(`<div style="margin-top:12px"><div class="eyebrow" style="margin-bottom:6px">${title}</div><div class="tag-edit">${body}</div></div>`);
+
+    const bdays = S.friends.filter(f => f.$.bday && f.$.bday.days <= 13).sort((a, b) => a.$.bday.days - b.$.bday.days);
+    if (bdays.length) add('🎂 Birthdays coming up', bdays.map(f => nameChip(f, whenLabel(f.$.bday.date))).join(''));
+    const plans = S.friends.filter(f => f.$.booked && f.$.planDays != null && f.$.planDays <= 6).sort((a, b) => a.$.planDays - b.$.planDays);
+    if (plans.length) add('📅 In the diary', plans.map(f => nameChip(f, esc(f.nextplan || 'plan') + ', ' + whenLabel(f.$.planDate))).join(''));
+    const toSee = S.friends.filter(f => f.$.needsBooking).sort((a, b) => b.$.priority - a.$.priority).slice(0, 4);
+    if (toSee.length) add('🤝 Try to see this week', toSee.map(f => nameChip(f)).join(''));
+    const base = currentBase();
+    if (base) {
+      const ideas = inviteCandidates('base:' + base.name).filter(f => f.$.seeRatio >= 0.8).length;
+      if (ideas) add(`💌 Near ${esc(base.name)}`, `<button class="chip tiny" data-act="invite" data-v="base:${esc(base.name)}">${plural(ideas, 'friend')} due a catch-up · plan something</button>`);
+    }
+    const md = iso(t).slice(5);
+    if (md >= CHRISTMAS_FROM && md <= CHRISTMAS_TO) {
+      const cards = S.friends.filter(f => isYes(f.christmascard));
+      const missing = cards.filter(f => !postalAddress(f)).length;
+      add('🎄 Christmas cards', `<button class="chip tiny" data-act="go-xmas">${plural(cards.length, 'card')} to send${missing ? ` · ${missing} need an address` : ''} · open the list</button>`);
+    }
+    const lastKey = iso(addWeeks(start, -1));
+    const lastWeek = S.log.filter(e => CHANNEL[e.type] && e.date >= lastKey && e.date < key).length;
+    add('📈 Last week', `<span class="small">${lastWeek ? `You logged ${plural(lastWeek, 'catch-up')}.` : 'Nothing logged last week. A quick ⚡ log helps keep the scores right.'}</span>`);
+
+    const monday = t.getDay() === 1;
+    let open = true;
+    try { open = localStorage.getItem('socialos.weekClosed') !== key; } catch (e) {}
+    const range = `${start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${addDays(start, 6).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+    return `<details class="box fold" data-week="${key}" ${open ? 'open' : ''} style="${open && monday ? 'outline:2px solid var(--accent)' : ''}">
+      <summary><h3>🗓️ ${monday ? 'It’s Monday! Here’s your week' : 'Your week'} <span class="muted small" style="font-family:Nunito">${range}</span></h3></summary>
+      ${rows.join('')}</details>`;
   }
 
   function scoreRow() {
@@ -1210,6 +1252,7 @@
     if (S.data.version !== CLIENT_VERSION) h += `<div class="banner" style="background:color-mix(in srgb, var(--bad) 14%, transparent)">
       <b>⚠️ Code.gs and Index.html don’t match.</b><div class="small">Paste the latest version of both files into Apps Script, then Deploy → Manage deployments → ✏️ → New version.</div></div>`;
     h += scoreRow();
+    h += yourWeek();
 
     h += `<div class="section-title" style="margin-top:6px">✨ Today’s ${picks.length > 1 ? picks.length + ' people' : 'person'}</div>`;
     if (!picks.length) h += emptyState('🌈', 'Nobody needs you today', 'Everyone’s up to date. Enjoy it!');
@@ -1387,13 +1430,10 @@
       const cards = list.filter(f => isYes(f.christmascard)).length;
       const gifts = list.filter(f => isYes(f.christmasgifteffort)).length;
       const noAddr = list.filter(f => isYes(f.christmascard) && !postalAddress(f)).length;
-      h += `<div class="box">
-        <div class="row"><div class="grow"><h3 style="margin:0">📬 Email me this list on 25 November</h3>
-          <div class="small muted">Plus a Monday nudge with birthdays and who to invite. Goes to ${esc(S.data.email || 'you')}.</div></div>
-          <button class="switch ${S.data.remindersOn ? 'on' : ''}" data-act="reminders" aria-label="Toggle reminders"></button></div>
-        <div class="row" style="margin-top:12px">
-          <button class="btn grow" data-act="email-xmas">📧 Email it now</button>
-          <button class="btn grow" data-act="copy-addresses">📋 Copy addresses</button></div>
+      h += `<div class="box"><div class="small muted" style="margin-bottom:10px">From 25 November, Today reminds you about this list.</div>
+        <div class="row">
+          <button class="btn grow" data-act="copy-addresses">📋 Copy addresses</button>
+          <button class="btn grow" data-act="copy-xmas">📋 Copy full list</button></div>
       </div>
       <div class="section-title">💌 ${plural(cards, 'card')} · 🎁 ${plural(gifts, 'gift')}${noAddr ? ` <span class="count" style="color:var(--bad)">${noAddr} missing an address</span>` : ''}</div>`;
       h += list.map(f => `<div class="list-row" data-open="${f._row}" style="align-items:flex-start">${avatar(f, 'sm')}
@@ -1741,10 +1781,6 @@
     }).join('');
     const prox = [1, 2, 3, 4, 5, 6].map(p => `<tr><td>${p} · ${esc(proxRule(p).geography)}</td><td>${every(proxRule(p).inviteGoal)}</td></tr>`).join('');
     return `<div class="sheet-head"><div style="font-size:40px">⚙️</div><div class="grow"><h2>Settings</h2></div></div>
-      <div class="box"><div class="row"><div class="grow"><b>📬 Reminder emails</b>
-        <div class="small muted">Christmas list on 25 November. On Mondays: upcoming birthdays and who to invite near your home base.</div></div>
-        <button class="switch ${S.data.remindersOn ? 'on' : ''}" data-act="reminders"></button></div>
-        <div class="row" style="margin-top:12px"><button class="btn grow" data-act="email-xmas">🎄 Send list now</button><button class="btn grow" data-act="email-bdays">🫶 Send weekly nudge now</button></div></div>
       <div class="box">
         <div class="row"><div class="grow"><b>🎮 Game bits</b><div class="small muted">XP, levels, streaks, quests and badges. Your friendship score stays either way.</div></div>
           <button class="switch ${gameOn() ? 'on' : ''}" data-act="game-toggle"></button></div>
@@ -1961,10 +1997,6 @@
       case 'more-checks': S.showAllChecks = true; render(); break;
       case 'more-due': S.showAllDue = true; render(); break;
       case 'game-toggle': savePrefs({ game: !gameOn() }); break;
-      case 'reminders-on':
-        api('setReminders', true).then(r => { S.data.remindersOn = r; render(); toast('📬 Monday emails on'); }).catch(err => toast('⚠️ ' + err.message));
-        break;
-      case 'reminders-hide': savePrefs({ remindersPromptHidden: true }); break;
       case 'quick': openSheet('quick'); setTimeout(() => { const t = $('#quickText'); t && t.focus(); }, 300); break;
       case 'quick-day': S.quick.day = v; renderSheetKeepingInputs(); break;
       case 'quick-tap': {
@@ -2074,20 +2106,19 @@
         break;
       }
       case 'copy': copy(a.dataset.text, 'Address copied 📋'); break;
+      case 'copy-xmas': {
+        const list = S.friends.filter(x => isYes(x.christmascard) || isYes(x.christmasgifteffort)).sort(SORTS.name[1]);
+        copy(list.map(x => [x.name, postalAddress(x) || '(no address)', isYes(x.christmascard) ? 'Card' : '',
+          isYes(x.christmasgifteffort) ? 'Gift: ' + x.christmasgifteffort : '', x.futuregiftideas ? 'Ideas: ' + x.futuregiftideas : ''].filter(Boolean).join('\n')).join('\n\n'),
+          `Copied ${list.length === 1 ? '1 person' : list.length + ' people'} 📋`);
+        break;
+      }
+      case 'go-xmas': S.tab = 'dates'; S.datesView = 'christmas'; window.scrollTo(0, 0); render(); break;
       case 'copy-addresses': {
         const list = S.friends.filter(x => isYes(x.christmascard) && postalAddress(x)).sort(SORTS.name[1]);
         copy(list.map(x => x.name + '\n' + postalAddress(x)).join('\n\n'), `Copied ${plural(list.length, 'address')} 📋`);
         break;
       }
-      case 'reminders': {
-        const on = !S.data.remindersOn;
-        a.classList.toggle('on', on);
-        api('setReminders', on).then(r => { S.data.remindersOn = r; render(); renderSheet(); toast(r ? '📬 Reminders on' : 'Reminders off'); })
-          .catch(err => { a.classList.toggle('on', !on); toast('⚠️ ' + err.message); });
-        break;
-      }
-      case 'email-xmas': toast('📧 Sending…'); api('emailChristmasList').then(r => toast('🎄 ' + r)).catch(err => toast('⚠️ ' + err.message)); break;
-      case 'email-bdays': toast('📧 Sending…'); api('emailWeeklyNudge', false).then(r => toast('🫶 ' + r)).catch(err => toast('⚠️ ' + err.message)); break;
       case 'add-tier': S.sheet.tier = +v; renderSheetKeepingInputs(); break;
       case 'add-save': submitNewFriend(); break;
       case 'locate': locateMe(); break;
@@ -2131,6 +2162,8 @@
   // Remember which friend-page sections are open, so saving a field doesn't fold them away.
   document.addEventListener('toggle', e => {
     const d = e.target;
+    // Closing "Your week" keeps it closed until next week.
+    if (d.dataset && d.dataset.week) { try { localStorage.setItem('socialos.weekClosed', d.open ? '' : d.dataset.week); } catch (err) {} }
     if (d.dataset && d.dataset.box) d.open ? S.openBoxes.add(d.dataset.box) : S.openBoxes.delete(d.dataset.box);
   }, true);
 
