@@ -16,18 +16,26 @@ launcher/                ← optional: gives you a proper home-screen icon
 4. Replace everything in `Index.html` with `apps-script/Index.html`.
 5. **Deploy → Manage deployments → ✏️ (edit) → Version: New version → Deploy.** Your link stays the same.
    - Set **Execute as: Me** and **Who has access: Only myself**.
-6. Open the app. Google will ask for new permissions: sending email to you (Christmas and birthday lists), looking up places for the map, reading your calendar (only used if you switch it on), and scheduling the daily reminder. Approve them.
-7. In the app, go to **Dates → Christmas** and switch on **Email me this list on 25 November**.
+6. Open the app. Google will ask for new permissions: sending email to you (Christmas and birthday lists), looking up places for the map, and scheduling the daily reminder. Approve them.
+7. On Today, tap **Turn on** for the Monday reminder email. That also switches on the Christmas list email on 25 November.
 
 ### What changes in your sheet
 
 - **Nothing is deleted or renamed.** Formula columns (Friend Health Score, Contact Task and so on) are left alone and shown as 🔒 in the app.
 - The first time you use them, the app adds these columns to the end of **Main**: `Last Called`, `Last Invited`, `Next Plan`, `Next Plan Date`, `Phone`, `Likes`, `Dislikes`, `Notes`.
-- An `Email` column is added if you fill one in. It's used to match calendar guests.
 - Your home bases and app settings are saved in the script's settings, not the sheet.
 - Two more hidden sheets: `_Log` (every catch-up, invite and plan outcome you log, which powers reliability, XP and streaks) and `_Weekly` (one friendship score per week).
 - The map adds a hidden sheet called `_Geo` that remembers where each place is, so it only looks each one up once.
 - You have **two "Address" columns**. The app treats the second as "Address (2nd column)". For Christmas labels it uses whichever one has a house number or postcode in it. If you rename one (for example to "Postal Address"), the app will cope.
+
+## Using it day to day
+
+- **Today** shows the **3 people most worth contacting**, with birthdays first. Tap **💬 Messaged**, **🤝 Saw**, **📅 Plan**, or **💤 Later** (hides them from the top 3 for 3 days).
+- **✅ Quick check-ins** collects everything waiting on a yes/no from you: did a plan happen, did an invite get a reply, and tier suggestions. It shows 3 at a time.
+- **⚡** (the floating button) logs anything else in seconds.
+- **The Monday email** lists who to get in touch with, upcoming birthdays, who to invite near your home base, and your friendship score. It's useful even in weeks you don't open the app.
+- **Four tabs:** Today, Friends, Places (with the map inside), Dates. On a friend's page, the less-used sections stay folded until you tap them.
+- **Settings → 🎮 Game bits** turns off XP, levels, streaks, quests and badges if you'd rather keep it calm. Your friendship score stays either way.
 
 ## How health is worked out: the friendship battery
 
@@ -51,7 +59,6 @@ Every catch-up tops up a friend's battery, and it slowly drains. Seeing someone 
 ## Logging, the easy way
 
 - **⚡ Log catch-ups** (the button on Today, and the floating button) lets you type it like a text, for example *"dinner with Sam and Jo on Saturday, called Mum yesterday, video with Chen, Alex texted me"*. It picks out the people, what you did and when. Tap a chip to fix the type, the day, or which Sam you meant, then log them all at once. Below that, tap 💬 📞 🎥 🤝 next to anyone for a one-tap log on any of the last 7 days.
-- **📆 Google Calendar** (switch it on from Today or Settings): events from the last 2 weeks that mention a friend's name (or have their address from the `Email` column as a guest) become suggested catch-ups. Online meetings become 🎥 video. Upcoming events become plans. You confirm each one, or tap ✕ and it won't be suggested again.
 - **🤖 Plans log themselves:** 2 days after a plan's date, it's logged as a catch-up. Today shows a list of these so you can tap *They ✗* or *Me ✗* if it didn't happen, which puts the old dates back.
 - **Plans aren't "bookings":** 📅 Plan is for anything in the diary, whoever arranged it. You can say who organised it; if *they* did, it counts in their favour for reliability. 💌 *I invited them* is separate, for when you did the inviting.
 - **Older catch-ups:** logging one from the past goes into the history and counts towards the battery, without moving the sheet's "last" dates backwards.
@@ -75,7 +82,7 @@ Friends with no address or place tag keep the Proximity Score from your sheet. S
 
 - **📍 Places tab:** one section per home base (friends within 30 km) and per place tag, most overdue first.
 - **💌 Invite planner** (from Today, a place, or a friend's page): choose where, what (coffee, dinner…), how many, and optionally a tag. You get the most overdue friends, closest tiers first, with allergies, likes and dislikes shown. **Mark invited** logs it for everyone at once, and they're left off the to-book lists for 14 days.
-- **Monday email** (with reminders on): upcoming birthdays plus the top 5 people to invite near your current base.
+- **Monday email** (with reminders on): includes the top 5 people to invite near your current base.
 
 ## Reliability & tier check-ins
 

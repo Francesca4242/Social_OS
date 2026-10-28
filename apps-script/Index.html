@@ -221,6 +221,24 @@
     .bar-hit { cursor: pointer; }
     .bar-hit:hover rect.bg, .bar-hit:focus rect.bg { fill: var(--surface-2); }
 
+    /* Today's picks */
+    .pick { background: var(--surface); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
+    .pick .why { font-size: 13.5px; font-weight: 700; color: var(--muted); margin-top: 2px; }
+    .pick .btns { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 6px; margin-top: 12px; }
+    .pick .btns .btn { padding: 10px 4px; font-size: 13px; }
+    .score-row { display: flex; align-items: center; gap: 12px; background: var(--surface); border-radius: 18px; padding: 10px 14px; margin: 4px 0 14px; box-shadow: var(--shadow); cursor: pointer; }
+    .score-row .num { font-family: Fredoka; font-weight: 700; font-size: 30px; line-height: 1; }
+    .mini { font-weight: 800; font-size: 14px; white-space: nowrap; }
+    .check-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+    .check-row:first-of-type { border-top: 0; }
+    .check-row .btn { padding: 8px 10px; font-size: 13px; }
+    details.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; }
+    details.fold > summary::-webkit-details-marker { display: none; }
+    details.fold > summary h3 { margin: 0; flex: 1; }
+    details.fold > summary::after { content: '›'; font-size: 22px; color: var(--muted); transition: transform .15s; }
+    details.fold[open] > summary::after { transform: rotate(90deg); }
+    details.fold[open] > summary { margin-bottom: 10px; }
+
     /* Toast */
     #toast { position: fixed; left: 50%; bottom: calc(var(--bar-h) + 20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 8px; width: min(92vw, 460px); pointer-events: none; }
     .toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 16px; background: var(--text); color: var(--bg); font-weight: 700; box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: up .25s both; }
@@ -246,6 +264,7 @@
   <div id="mapwrap" hidden>
     <div class="map-controls">
       <input class="input grow" id="placeInput" placeholder="I'm in… (e.g. Manchester)" enterkeyhint="search">
+      <button class="icon-btn" data-tab="places" aria-label="Back to the list"><span>📋</span></button>
       <button class="icon-btn" data-act="locate" aria-label="Use my location"><span>📍</span></button>
       <select class="input" id="radius" aria-label="Distance">
         <option value="5">5 km</option><option value="15">15 km</option><option value="30" selected>30 km</option><option value="80">80 km</option>
@@ -262,7 +281,6 @@
     <button class="tab" data-tab="today"><span class="ico">🏡</span>Today<span class="badge" id="todayBadge" hidden></span></button>
     <button class="tab" data-tab="friends"><span class="ico">👯</span>Friends</button>
     <button class="tab" data-tab="places"><span class="ico">📍</span>Places</button>
-    <button class="tab" data-tab="map"><span class="ico">🗺️</span>Map</button>
     <button class="tab" data-tab="dates"><span class="ico">🎂</span>Dates</button>
   </div></nav>
 
@@ -300,7 +318,7 @@
 
   /* ───────────── State ───────────── */
   const S = {
-    data: null, friends: [], byRow: {}, cols: {}, prefs: { bases: [], current: '', autoDistance: true }, openPlaces: new Set(), log: [], logByName: {}, weeks: [], cal: [], quick: null,
+    data: null, friends: [], byRow: {}, cols: {}, prefs: { bases: [], current: '', autoDistance: true }, openPlaces: new Set(), openBoxes: new Set(), log: [], logByName: {}, weeks: [], quick: null,
     tab: 'today', todayFilter: 'all',
     query: '', tiers: new Set(), status: '', sort: 'priority',
     datesView: 'birthdays', sheet: null,
@@ -668,6 +686,8 @@
     return { score: w ? Math.round(sum / w) : 0, thriving, tracked };
   }
 
+  const gameOn = () => S.prefs.game !== false;
+  const xpText = n => gameOn() && n ? ` · +${n} XP` : '';
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   // Records things that happened (for reliability, XP and streaks). Returns the events, for undo.
   function addEvents(list) {
@@ -677,7 +697,7 @@
     afterLogChange(evs);
     write('logEvents', JSON.stringify(evs)).catch(err => toast('⚠️ History not saved: ' + err.message));
     const after = gameStats().level;
-    if (after > before) setTimeout(() => { confetti(); toast(`⬆️ Level ${after}: ${LEVELS[after - 1]}!`); }, 700);
+    if (after > before && gameOn()) setTimeout(() => { confetti(); toast(`⬆️ Level ${after}: ${LEVELS[after - 1]}!`); }, 700);
     return evs;
   }
   function removeEventsLocal(evs) {
@@ -777,7 +797,7 @@
     if (entries.some(e => e.type === 'meet')) confetti();
     Promise.all(entries.map(e => applyLog(e.f, e.type, e.date, { note: e.note || '', extra: e.extra || [] }))).then(items => {
       const xp = items.reduce((sum, i) => sum + i.evs.reduce((a, e) => a + e.xp, 0), 0);
-      toast(`${label || '✅ Logged'} ${plural(items.length, 'catch-up')} · +${xp} XP`, { undo: () => undoLogs(items) });
+      toast(`${label || '✅ Logged'} ${plural(items.length, 'catch-up')}${xpText(xp)}`, { undo: () => undoLogs(items) });
     }).catch(() => {});
   }
 
@@ -823,48 +843,6 @@
     toast(who === 'them' ? `Noted: ${f.name.split(' ')[0]} cancelled` : 'Removed');
   }
 
-  // Google Calendar: past events with a friend become catch-ups, future ones become plans.
-  async function checkCalendar(force) {
-    if (!S.prefs.useCalendar || (S.calScanned && !force)) return;
-    S.calScanned = true;
-    try {
-      S.calRaw = JSON.parse(await api('scanCalendar', 14, 60));
-      S.cal = matchCalendar(S.calRaw);
-      render();
-    } catch (e) { toast('⚠️ Calendar: ' + e.message); }
-  }
-  function matchCalendar(events) {
-    const firstCount = {};
-    S.friends.forEach(f => { const fn = f.name.toLowerCase().split(/\s+/)[0]; firstCount[fn] = (firstCount[fn] || 0) + 1; });
-    const used = new Set(S.log.map(e => (e.note.match(/cal:(\S+)/) || [])[1]).filter(Boolean));
-    const dismissed = new Set(S.prefs.calDismissed || []);
-    const t = iso(today());
-    const out = [];
-    events.forEach(ev => {
-      if (used.has(ev.id) || dismissed.has(ev.id) || /birthday|bday/i.test(ev.title)) return;
-      const text = ' ' + ev.title.toLowerCase() + ' ';
-      S.friends.forEach(f => {
-        const full = f.name.toLowerCase().trim(), first = full.split(/\s+/)[0], email = String(f.email || '').toLowerCase().trim();
-        const hit = (email && ev.guests.includes(email)) || wordIn(text, full) || (firstCount[first] === 1 && first.length >= 3 && wordIn(text, first));
-        if (!hit) return;
-        const past = ev.date < t || (ev.date === t && ev.ended);
-        if (past && iso(parseDate(f.lastseenvideocalled) || new Date(0)) >= ev.date && !ev.video) return;
-        if (!past && f.$.planDate && iso(f.$.planDate) === ev.date) return;
-        out.push({ key: ev.id + '|' + f._row, id: ev.id, f, title: ev.title, date: ev.date, past, video: ev.video, on: true });
-      });
-    });
-    return out.sort((a, b) => a.date < b.date ? 1 : -1);
-  }
-  function applyCalendar(list) {
-    const past = list.filter(c => c.past), future = list.filter(c => !c.past);
-    if (past.length) logMany(past.map(c => ({ f: c.f, type: c.video ? 'video' : 'meet', date: c.date, note: 'cal:' + c.id })), '📆 From your calendar:');
-    future.forEach(c => save(c.f, { nextplan: c.title, nextplandate: c.date }).then(() => addEvents([{ name: c.f.name, type: 'booked', note: 'cal:' + c.id }])).catch(() => {}));
-    if (future.length) toast(`📅 Added ${plural(future.length, 'plan')} from your calendar`);
-    const keys = new Set(list.map(c => c.key));
-    S.cal = S.cal.filter(c => !keys.has(c.key));
-    render();
-  }
-
   /* ───────────── Talking to the sheet ───────────── */
   function api(name, ...args) {
     return new Promise((resolve, reject) => {
@@ -890,7 +868,7 @@
     S.cols = {};
     d.columns.forEach(c => { S.cols[c.key] = c; });
     S.geo = Object.assign({}, S.geo, d.geo || {});
-    S.prefs = Object.assign({ bases: [], current: '', autoDistance: true, useCalendar: false, autoConfirm: true, calDismissed: [] }, d.prefs || {});
+    S.prefs = Object.assign({ bases: [], current: '', autoDistance: true, autoConfirm: true }, d.prefs || {});
     S.log = d.log || [];
     S.weeks = d.weeks || [];
     indexLog();
@@ -911,7 +889,6 @@
       render();
       scheduleWeekSave();
       autoConfirmPlans();
-      checkCalendar();
       if (S.sheet && !(document.activeElement && $('#sheetPanel').contains(document.activeElement))) renderSheet();
       if (S.prefs.current) geocodeMissing();
     }).catch(err => toast('⚠️ ' + err.message)).finally(() => $('#syncBtn').classList.remove('spinning'));
@@ -979,7 +956,7 @@
     applyLog(f, type, day, { extra }).then(item => {
       const gained = item.evs.reduce((sum, e) => sum + e.xp, 0);
       const delta = before != null && f.$.health != null && f.$.health !== before ? ` · health ${before} → ${f.$.health}` : '';
-      toast(`${L.emoji} ${L.verb} ${f.name.split(' ')[0]}${delta}${gained ? ` · +${gained} XP` : ''}`, { undo: () => undoLogs([item]) });
+      toast(`${L.emoji} ${L.verb} ${f.name.split(' ')[0]}${delta}${xpText(gained)}`, { undo: () => undoLogs([item]) });
     }).catch(() => {});
   }
 
@@ -1046,7 +1023,7 @@
 
   /* ───────────── Views ───────────── */
   function render() {
-    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === S.tab));
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === (S.tab === 'map' ? 'places' : S.tab)));
     $('#mapwrap').hidden = S.tab !== 'map';
     $('#view').hidden = S.tab === 'map';
     document.querySelector('.fab').hidden = S.tab === 'map';
@@ -1113,27 +1090,7 @@
       <line x1="0" x2="${width}" y1="${6 + plotH}" y2="${6 + plotH}" stroke="var(--border)"/>${bars}</svg>`;
   }
 
-  function scoreboard() {
-    const o = overallScore(), g = gameStats();
-    const lo = xpForLevel(g.level), hi = xpForLevel(g.level + 1);
-    const pct = g.level >= LEVELS.length ? 100 : Math.round(100 * (g.xp - lo) / (hi - lo));
-    const weekXp = g.weekXP[g.thisWeek] || 0;
-    return `<div class="score-card" data-act="progress">
-      <div class="row" style="align-items:flex-end">
-        <div class="grow"><div class="eyebrow">Friendship score</div>
-          <div class="big-num" style="color:${healthColor(o.score)}">${o.score}${deltaChip(o.score)}</div></div>
-        <div style="width:110px">${weekChart(scoreSeries(8), { width: 110, height: 46, labels: false })}</div>
-      </div>
-      <div class="pills">
-        <div class="pill"><span class="eyebrow">Streak</span><b>🔥 ${g.streak} wk${g.streak === 1 ? '' : 's'}</b>
-          <div class="small muted">${weekXp >= WEEK_GOAL_XP ? 'this week ✓' : `${WEEK_GOAL_XP - weekXp} XP to keep it`}</div></div>
-        <div class="pill" style="flex:1.4"><span class="eyebrow">Level ${g.level}</span><b style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${LEVELS[g.level - 1]}</b>
-          <div class="xpbar"><i style="width:${pct}%"></i></div><div class="small muted">${g.xp} XP${g.level < LEVELS.length ? ` · ${hi - g.xp} to go` : ''}</div></div>
-      </div>
-      <div style="margin-top:12px"><div class="eyebrow" style="margin-bottom:2px">This week’s quests · +${QUEST_XP} XP each</div>
-        ${g.quests.map(q => `<div class="quest ${q.n >= q.goal ? 'done' : ''}"><span class="tick">${q.n >= q.goal ? '✓' : ''}</span><span class="q grow">${q.label}</span><span class="muted">${q.n}/${q.goal}</span></div>`).join('')}
-      </div></div>`;
-  }
+
 
   function sheetProgress() {
     const o = overallScore(), g = gameStats();
@@ -1147,7 +1104,7 @@
         ${weekChart(scoreSeries(12))}
         <div class="chart-tip" id="chartTip">Tap a bar to see the week</div>
         <p class="small muted" style="margin:8px 0 0">Everyone’s health averaged, with closer tiers counting more. ${o.thriving} of ${o.tracked} friendships are thriving. A score is saved for each week you open the app.</p></div>
-      <div class="box"><div class="row"><div class="grow"><div class="eyebrow">Level ${g.level}</div><b>${LEVELS[g.level - 1]}</b></div><b>${g.xp} XP</b></div>
+      ${gameOn() ? `<div class="box"><div class="row"><div class="grow"><div class="eyebrow">Level ${g.level}</div><b>${LEVELS[g.level - 1]}</b></div><b>${g.xp} XP</b></div>
         <div class="xpbar" style="height:9px;margin-top:8px"><i style="width:${g.level >= LEVELS.length ? 100 : Math.round(100 * (g.xp - lo) / (hi - lo))}%"></i></div>
         <div class="small muted" style="margin-top:6px">${g.level < LEVELS.length ? `${hi - g.xp} XP until ${LEVELS[g.level]}` : 'Top level!'} · 🔥 streak ${g.streak} (best ${g.best})</div></div>
       <div class="box"><h3>🎯 This week’s quests</h3>${g.quests.map(q => `<div class="quest ${q.n >= q.goal ? 'done' : ''}"><span class="tick">${q.n >= q.goal ? '✓' : ''}</span><span class="q grow">${q.label}</span><span class="muted">${q.n}/${q.goal}</span></div>`).join('')}
@@ -1155,15 +1112,60 @@
       <div class="box"><h3>🏅 Badges</h3><div class="badges">${BADGES.map(b => {
         const val = b.value(S.log, g), got = val >= b.goal;
         return `<div class="badge-tile ${got ? '' : 'locked'}"><span class="e">${b.e}</span>${b.name}<div class="small muted" style="font-weight:600">${got ? b.desc : `${Math.min(val, b.goal)}/${b.goal} · ${b.desc}`}</div></div>`;
-      }).join('')}</div></div>
+      }).join('')}</div></div>` : ''}
       ${ranked.length ? `<div class="box"><h3>🪨 Most reliable</h3>${ranked.slice(0, 5).map(relRow).join('')}</div>
         ${ranked.length > 5 || ranked.some(f => f.$.rel.reliability < 0.5) ? `<div class="box"><h3>🫥 Hard to pin down</h3>${ranked.slice().reverse().filter(f => f.$.rel.reliability < 0.6).slice(0, 5).map(relRow).join('') || '<p class="small muted">Nobody, lovely.</p>'}</div>` : ''}`
         : `<div class="box"><h3>🪨 Reliability</h3><p class="small muted" style="margin:0">Shows up after ${RELIABILITY_MIN} invites or plans with someone. Answer the “Did this happen?” and “Any replies?” prompts to build it.</p></div>`}
-      <div class="box help"><h3>⭐ How XP works</h3><table>
-        <tr><td>💬 Message · 📥 they got in touch</td><td>5</td></tr><tr><td>📞 Call or video</td><td>10</td></tr>
-        <tr><td>🤝 See someone</td><td>25</td></tr><tr><td>💌 Invite · 📅 book a plan</td><td>5 · 10</td></tr>
+      ${gameOn() ? `<div class="box help"><h3>⭐ How XP works</h3><table>
+        <tr><td>💬 Message · 📥 they got in touch</td><td>5</td></tr><tr><td>📞 Call · 🎥 video</td><td>10 · 15</td></tr>
+        <tr><td>🤝 See someone</td><td>25</td></tr><tr><td>💌 Invite · 📅 add a plan</td><td>5 · 10</td></tr>
         <tr><td>🎉 A plan that happened</td><td>+15</td></tr><tr><td>🔁 Reconnect after 6+ months</td><td>+20</td></tr>
-        <tr><td>🎂 On their birthday</td><td>+10</td></tr><tr><td>🎯 Each weekly quest</td><td>+${QUEST_XP}</td></tr></table></div>`;
+        <tr><td>🎂 On their birthday</td><td>+10</td></tr><tr><td>🎯 Each weekly quest</td><td>+${QUEST_XP}</td></tr></table></div>` : ''}`;
+  }
+
+  const TODAY_PICKS = 3;  // how many people Today puts first
+  const SNOOZE_DAYS = 3;  // "Later" hides someone from Today's picks for this long
+
+  const snoozed = f => ((S.logByName || {})[f.name.toLowerCase()] || []).some(e => e.type === 'snooze' && e.date > iso(addDays(today(), -SNOOZE_DAYS)));
+  // The few people most worth contacting today: birthdays first, then whoever most needs you.
+  function todaysPicks() {
+    const bdays = S.friends.filter(f => f.$.bday && f.$.bday.days === 0 && f.$.dContact !== 0);
+    const due = S.friends.filter(f => (f.$.needsMessage || f.$.needsBooking) && !snoozed(f) && f.$.dContact !== 0 && !bdays.includes(f))
+      .sort((a, b) => b.$.priority - a.$.priority);
+    return [...bdays, ...due].slice(0, TODAY_PICKS);
+  }
+  function pickReason(f) {
+    const $f = f.$;
+    if ($f.bday && $f.bday.days === 0) return `🎂 Birthday today${$f.bday.age ? ': ' + $f.bday.age + '!' : '!'}`;
+    if ($f.needsBooking) return `🤝 Not seen ${$f.dSeen == null ? 'yet' : 'for ' + ago($f.dSeen).replace(' ago', '')}. Time to make a plan?`;
+    return `💬 ${$f.dContact == null ? 'No catch-ups logged yet' : ago($f.dContact).replace(' ago', '') + ' since you were in touch'}`;
+  }
+
+  // Everything waiting on a quick yes/no from you, as one short list.
+  function checkIns() {
+    const items = [];
+    const row = (f, text, buttons) => `<div class="check-row">${avatar(f, 'sm')}<div class="grow" style="min-width:0"><b>${esc(f.name)}</b><div class="small muted">${text}</div></div>${buttons}</div>`;
+    S.friends.filter(f => f.$.planPast).forEach(f => items.push(row(f, `❓ Did “${esc(f.nextplan || 'your plan')}” happen? ${fmtDate(f.$.planDate)}`,
+      `<button class="btn primary" data-act="plan-yes" data-row="${f._row}">Yes</button><button class="btn" data-act="plan-they" data-row="${f._row}" title="They cancelled">They ✗</button><button class="btn" data-act="plan-me" data-row="${f._row}" title="You cancelled">Me ✗</button>`)));
+    autoLogged().forEach(({ e, f }) => items.push(row(f, `🤖 Assumed your plan on ${fmtDate(parseDate(e.date))} happened`,
+      `<button class="btn" data-act="auto-ok" data-v="${esc(e.id)}">👍</button><button class="btn" data-act="auto-they" data-v="${esc(e.id)}" data-row="${f._row}">They ✗</button><button class="btn" data-act="auto-me" data-v="${esc(e.id)}" data-row="${f._row}">Me ✗</button>`)));
+    S.friends.filter(f => f.$.rel.pendingInvite && daysSince(f.$.rel.pendingInvite.date) >= 4).forEach(f => items.push(row(f, `💌 Invited ${ago(daysSince(f.$.rel.pendingInvite.date))}. Any reply?`,
+      `<button class="btn primary" data-act="inv-reply" data-v="yes" data-row="${f._row}" title="Made a plan">📅</button><button class="btn" data-act="inv-reply" data-v="declined" data-row="${f._row}">No</button><button class="btn" data-act="inv-reply" data-v="noreply" data-row="${f._row}" title="No reply">👻</button>`)));
+    S.friends.map(f => ({ f, s: tierSuggestion(f) })).filter(x => x.s).slice(0, 2).forEach(({ f, s }) => items.push(row(f, `🎚️ ${esc(s.why)}`,
+      `<button class="btn primary" data-act="tier-move" data-v="${s.to}" data-row="${f._row}">${s.dir === 'down' ? '⬇️' : '⬆️'} Tier ${s.to}</button><button class="btn" data-act="tier-keep" data-row="${f._row}">Keep</button>`)));
+    const setup = (emoji, title, text, on, off) => `<div class="check-row"><div style="font-size:26px;width:36px;text-align:center">${emoji}</div><div class="grow"><b>${title}</b><div class="small muted">${text}</div></div>
+      <button class="btn primary" data-act="${on}">Turn on</button><button class="btn" data-act="${off}" aria-label="No thanks">✕</button></div>`;
+    if (!S.data.remindersOn && !S.prefs.remindersPromptHidden) items.push(setup('📬', 'Monday reminder email', 'Who to get in touch with and upcoming birthdays, for busy weeks.', 'reminders-on', 'reminders-hide'));
+    return items;
+  }
+
+  function scoreRow() {
+    const o = overallScore();
+    const g = gameOn() ? gameStats() : null;
+    return `<div class="score-row" data-act="progress">
+      <span class="num" style="color:${healthColor(o.score)}">${o.score}</span>
+      <div class="grow" style="min-width:0"><div class="eyebrow">Friendship score</div>${deltaChip(o.score).replace('class="delta', 'style="margin-left:0" class="delta')}</div>
+      ${g ? `<span class="mini">🔥 ${g.streak}</span><span class="mini">⭐ ${g.level}</span>` : ''}<span class="muted" style="font-size:22px">›</span></div>`;
   }
 
   function viewToday() {
@@ -1171,103 +1173,64 @@
     const msg = all.filter(f => f.$.needsMessage).sort((a, b) => b.$.priority - a.$.priority);
     const book = all.filter(f => f.$.needsBooking).sort((a, b) => b.$.priority - a.$.priority);
     const booked = S.friends.filter(f => f.$.booked).sort((a, b) => (a.$.planDays ?? 999) - (b.$.planDays ?? 999));
-    const past = S.friends.filter(f => f.$.planPast);
-    const bdays = S.friends.filter(f => f.$.bday && f.$.bday.days <= 14).sort((a, b) => a.$.bday.days - b.$.bday.days);
-
+    const bdays = S.friends.filter(f => f.$.bday && f.$.bday.days > 0 && f.$.bday.days <= 14).sort((a, b) => a.$.bday.days - b.$.bday.days);
+    const picks = todaysPicks();
     const base = currentBase();
-    let h = `<div class="hello"><h2>${greeting()}</h2><p>${msg.length + book.length ? 'A few people would love to hear from you.' : 'Everyone’s up to date. Lovely work!'}</p>
-      <button class="chip" style="margin-top:10px" data-act="bases">🏠 ${base ? 'Living in ' + esc(base.name) : 'Where are you living right now?'} <span class="n">▾</span></button></div>`;
-    if (base) {
-      const ideas = inviteCandidates('base:' + base.name).filter(f => f.$.seeRatio >= 0.8);
-      if (ideas.length) h += `<div class="banner" data-act="invite" data-v="base:${esc(base.name)}" style="cursor:pointer">
-        <div class="row"><div class="grow"><h3 style="margin:0">💌 Who to invite near ${esc(base.name)}</h3>
-          <div class="small muted">${ideas.slice(0, 3).map(f => esc(f.name.split(' ')[0])).join(', ')}${ideas.length > 3 ? ` and ${ideas.length - 3} more` : ''} are due a catch-up.</div></div>
-          <div class="row" style="gap:0">${ideas.slice(0, 3).map((f, i) => `<div style="margin-left:${i ? -12 : 0}px">${avatar(f, 'sm')}</div>`).join('')}</div></div></div>`;
+
+    let h = `<div class="hello"><h2>${greeting()}</h2>
+      <button class="chip" style="margin-top:8px" data-act="bases">🏠 ${base ? esc(base.name) : 'Where are you living?'} <span class="n">▾</span></button></div>`;
+    h += scoreRow();
+
+    h += `<div class="section-title" style="margin-top:6px">✨ Today’s ${picks.length > 1 ? picks.length + ' people' : 'person'}</div>`;
+    if (!picks.length) h += emptyState('🌈', 'Nobody needs you today', 'Everyone’s up to date. Enjoy it!');
+    picks.forEach(f => {
+      h += `<div class="pick"><div class="row" data-open="${f._row}" style="cursor:pointer">${avatar(f)}
+          <div class="grow" style="min-width:0"><div class="name">${esc(f.name)}</div><div class="why">${pickReason(f)}</div></div></div>
+        <div class="btns">
+          <button class="btn primary" data-act="log" data-type="message" data-row="${f._row}">💬 Messaged</button>
+          <button class="btn" data-act="log" data-type="meet" data-row="${f._row}" title="Saw them">🤝 Saw</button>
+          <button class="btn" data-act="book" data-row="${f._row}" title="Make a plan">📅 Plan</button>
+          <button class="btn" data-act="snooze" data-row="${f._row}" title="Not today">💤 Later</button></div></div>`;
+    });
+    h += `<button class="btn block" style="margin:4px 0 6px;padding:13px" data-act="quick">⚡ Log catch-ups</button>`;
+
+    const checks = checkIns();
+    if (checks.length) {
+      const shown = S.showAllChecks ? checks : checks.slice(0, 3);
+      h += `<div class="section-title">✅ Quick check-ins <span class="count">${checks.length}</span></div>
+        <div class="box" style="padding:4px 14px">${shown.join('')}
+        ${checks.length > shown.length ? `<button class="btn block" style="margin:6px 0 10px;padding:8px" data-act="more-checks">Show ${checks.length - shown.length} more</button>` : ''}</div>`;
     }
 
-    h += `<button class="btn block primary" style="margin-bottom:14px;padding:14px" data-act="quick">⚡ Log catch-ups</button>`;
-    if (S.cal.length) {
-      h += `<div class="banner"><h3>📆 Found in your calendar</h3>${S.cal.slice(0, 8).map(c => `
-        <div class="row" style="margin-top:8px">${avatar(c.f, 'sm')}
-          <div class="grow"><b>${esc(c.f.name)}</b><div class="small muted">${c.past ? (c.video ? '🎥 ' : '🤝 ') : '📅 Plan: '}${esc(c.title)} · ${dayLabel(c.date) === fmtDate(parseDate(c.date)) || !c.past ? fmtDate(parseDate(c.date)) : dayLabel(c.date)}</div></div>
-          <button class="btn" style="padding:8px 10px" data-act="cal-one" data-v="${esc(c.key)}" title="Add">✓</button>
-          <button class="btn" style="padding:8px 10px" data-act="cal-skip" data-v="${esc(c.key)}" title="Not a catch-up">✕</button>
-        </div>`).join('')}
-        <button class="btn primary block" style="margin-top:10px" data-act="cal-all">Add all ${S.cal.length > 8 ? 8 : S.cal.length}</button></div>`;
-    } else if (!S.prefs.useCalendar && !S.prefs.calPromptHidden) {
-      h += `<div class="banner" style="background:var(--surface-2)"><div class="row"><div style="font-size:30px">📆</div>
-        <div class="grow"><b>Log catch-ups from your Google Calendar</b><div class="small muted">Events with a friend’s name become catch-ups or plans. You confirm each one.</div></div></div>
-        <div class="row" style="margin-top:10px"><button class="btn primary grow" data-act="cal-on">Turn on</button><button class="btn" data-act="cal-hide">No thanks</button></div></div>`;
-    }
-    const autos = autoLogged();
-    if (autos.length) {
-      h += `<div class="banner" style="background:var(--surface-2)"><h3>🤖 I assumed these plans happened</h3>${autos.map(({ e, f }) => `
-        <div class="row" style="margin-top:8px">${avatar(f, 'sm')}
-          <div class="grow"><b>${esc(f.name)}</b><div class="small muted">${fmtDate(parseDate(e.date))}</div></div>
-          <button class="btn" style="padding:8px 10px" data-act="auto-ok" data-v="${esc(e.id)}">👍</button>
-          <button class="btn" style="padding:8px 10px" data-act="auto-they" data-v="${esc(e.id)}" data-row="${f._row}">They ✗</button>
-          <button class="btn" style="padding:8px 10px" data-act="auto-me" data-v="${esc(e.id)}" data-row="${f._row}">Me ✗</button>
-        </div>`).join('')}</div>`;
-    }
-    h += scoreboard();
-    const pending = S.friends.filter(f => f.$.rel.pendingInvite && daysSince(f.$.rel.pendingInvite.date) >= 4);
-    if (pending.length) {
-      h += `<div class="banner"><h3>💌 Any replies?</h3>${pending.slice(0, 5).map(f => `
-        <div class="row" style="margin-top:8px">${avatar(f, 'sm')}
-          <div class="grow"><b>${esc(f.name)}</b><div class="small muted">invited ${ago(daysSince(f.$.rel.pendingInvite.date))}</div></div>
-          <button class="btn primary" style="padding:8px 10px" data-act="inv-reply" data-v="yes" data-row="${f._row}" title="Booked something">📅</button>
-          <button class="btn" style="padding:8px 10px" data-act="inv-reply" data-v="declined" data-row="${f._row}" title="Said no">🙂 No</button>
-          <button class="btn" style="padding:8px 10px" data-act="inv-reply" data-v="noreply" data-row="${f._row}" title="No reply">👻</button>
-        </div>`).join('')}</div>`;
-    }
-    const checks = S.friends.map(f => ({ f, s: tierSuggestion(f) })).filter(x => x.s).slice(0, 3);
-    if (checks.length) {
-      h += `<div class="banner" style="background:var(--surface-2)"><h3>🎚️ Tier check-in</h3>${checks.map(({ f, s }) => `
-        <div class="row" style="margin-top:10px;align-items:flex-start">${avatar(f, 'sm')}
-          <div class="grow"><b>${esc(f.name)}</b> <span class="small muted">· ${reliabilityLabel(f.$.rel)}</span>
-            <div class="small muted">${esc(s.why)}</div>
-            <div class="row" style="margin-top:6px">
-              <button class="btn primary" style="padding:7px 12px" data-act="tier-move" data-v="${s.to}" data-row="${f._row}">${s.dir === 'down' ? '⬇️' : '⬆️'} Move to tier ${s.to}</button>
-              <button class="btn" style="padding:7px 12px" data-act="tier-keep" data-row="${f._row}">Keep tier ${f.$.tier}</button></div></div>
-        </div>`).join('')}</div>`;
-    }
-    if (past.length) {
-      h += `<div class="banner"><h3>❓ Did these happen?</h3>${past.map(f => `
-        <div class="row" style="margin-top:8px">${avatar(f, 'sm')}
-          <div class="grow"><b>${esc(f.name)}</b><div class="small muted">${esc(f.nextplan || 'Plan')} · ${fmtDate(f.$.planDate)}</div></div>
-          <button class="btn primary" style="padding:8px 10px" data-act="plan-yes" data-row="${f._row}">Yes 🎉</button>
-          <button class="btn" style="padding:8px 10px" data-act="plan-they" data-row="${f._row}" title="They cancelled">They ✗</button>
-          <button class="btn" style="padding:8px 10px" data-act="plan-me" data-row="${f._row}" title="You cancelled">Me ✗</button>
-        </div>`).join('')}</div>`;
-    }
     if (bdays.length) {
       h += `<div class="section-title">🎂 Birthdays coming up</div><div class="scroll-x">${bdays.map(f => `
         <div class="bday-pill" data-open="${f._row}">${avatar(f)}<div class="name" style="font-size:15px">${esc(f.name.split(' ')[0])}</div>
-        <div class="when">${f.$.bday.days === 0 ? 'Today! 🎉' : inDays(f.$.bday.days)}</div>
+        <div class="when">${inDays(f.$.bday.days)}</div>
         <div class="small muted">${f.$.bday.age ? 'turns ' + f.$.bday.age : fmtDate(f.$.bday.date)}</div></div>`).join('')}</div>`;
     }
 
     const F = S.todayFilter;
-    h += `<div class="seg" style="margin-top:18px">
+    h += `<div class="section-title">📋 Everyone who’s due</div><div class="seg">
       ${[['all', 'All'], ['message', '💬 Message'], ['book', '🤝 To see'], ['booked', '📅 Plans']].map(([k, label]) => {
         const n = k === 'message' ? msg.length : k === 'book' ? book.length : k === 'booked' ? booked.length : null;
         return `<button class="${F === k ? 'on' : ''}" data-act="today-filter" data-v="${k}">${label}${n ? `<span class="n">${n}</span>` : ''}</button>`;
       }).join('')}</div>`;
-
     let list;
     if (F === 'message') list = msg;
     else if (F === 'book') list = book;
     else if (F === 'booked') list = booked;
     else list = [...new Set([...msg, ...book])].sort((a, b) => b.$.priority - a.$.priority);
-
     if (!list.length) {
       h += F === 'booked' ? emptyState('🗓️', 'No plans yet', 'Tap 📅 on a friend when you’ve got something in the diary, whoever arranged it.')
         : emptyState('🌈', 'All caught up!', 'Nobody is overdue. Go enjoy your day.');
     } else {
-      h += list.slice(0, 60).map(card).join('');
+      const shown = S.showAllDue ? list : list.slice(0, 8);
+      h += shown.map(card).join('');
+      if (list.length > shown.length) h += `<button class="btn block" data-act="more-due">Show all ${list.length}</button>`;
     }
     return h;
   }
+
 
   // Search understands plain words plus tag:, place:, tier:, met:, prox:, gift:, is:
   function matches(f, q) {
@@ -1349,6 +1312,7 @@
   function viewPlaces() {
     const keys = placeKeys();
     let h = `<div class="hello"><h2>📍 Places</h2><p>Who to see in each place, most overdue first.</p>
+      <button class="chip" style="margin-top:10px" data-tab="map">🗺️ Map</button>
       <button class="chip" style="margin-top:10px" data-act="bases">🏠 ${currentBase() ? 'Living in ' + esc(currentBase().name) : 'Add your home bases'} <span class="n">▾</span></button></div>`;
     if (!keys.length) return h + emptyState('🧭', 'No places yet', 'Add place tags to friends, or add a home base.');
     keys.forEach(p => {
@@ -1465,7 +1429,6 @@
     if (!f) return '';
     const $f = f.$;
     const phone = String(f.phone || '').replace(/[^\d+]/g, '');
-    const wa = phone ? phone.replace(/^\+/, '').replace(/^0/, '44') : '';
     const addr = postalAddress(f);
     const tiers = [1, 2, 3, 4, 5, 6];
     const proxOpts = [1, 2, 3, 4, 5, 6].map(p => `<option value="${p}" ${$f.prox === p ? 'selected' : ''}>${p} · ${esc(proxRule(p).geography || 'Proximity ' + p)}</option>`).join('');
@@ -1487,7 +1450,6 @@
         <button class="act ${$f.booked ? 'on' : ''}" data-act="book" data-row="${f._row}"><span class="e">📅</span>${$f.booked ? 'Plan ✓' : 'Plan'}</button>
       </div>
       ${phone ? `<div class="links" style="margin-bottom:12px">
-        <a class="btn grow" href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">🟢 WhatsApp</a>
         <a class="btn grow" href="sms:${esc(phone)}">💬 Text</a>
         <a class="btn grow" href="tel:${esc(phone)}">📞 Ring</a></div>` : ''}
 
@@ -1524,61 +1486,61 @@
           <select class="input" data-save="proximityscore" data-row="${f._row}" ${editable('proximityscore') ? '' : 'disabled'}><option value="">–</option>${proxOpts}</select></label>
       </div>
 
-      <div class="box"><h3>🤝 Reliability</h3>
+      <details class="box fold" data-box="reliability" ${S.openBoxes.has('reliability') ? 'open' : ''}><summary><h3>🤝 Reliability</h3></summary>
         <div class="kv"><span>${reliabilityLabel($f.rel)}</span><b>${$f.rel.attempts >= RELIABILITY_MIN ? Math.round($f.rel.reliability * 100) + '%' : '–'}</b></div>
         ${$f.rel.attempts >= RELIABILITY_MIN ? `<div class="bar"><i style="width:${Math.round($f.rel.reliability * 100)}%;background:${healthColor($f.rel.reliability * 100)}"></i></div>` : ''}
         <div class="small muted" style="margin-top:6px">Plans kept ${$f.rel.kept} · said yes ${$f.rel.yes} · cancelled ${$f.rel.cancelled} · no reply ${$f.rel.ghosted} · said no ${$f.rel.declined}</div>
         <div class="small muted">Last 90 days: you messaged or invited ${$f.rel.mine90}×, they got in touch ${$f.rel.theirs90}× (tap 📥 when they do)</div>
         ${tierSuggestion(f) ? `<div class="row" style="margin-top:10px"><button class="btn primary grow" data-act="tier-move" data-v="${tierSuggestion(f).to}" data-row="${f._row}">${tierSuggestion(f).dir === 'down' ? '⬇️' : '⬆️'} Suggest: move to tier ${tierSuggestion(f).to}</button>
           <button class="btn" data-act="tier-keep" data-row="${f._row}">Keep</button></div>` : ''}
-      </div>
+      </details>
 
-      <div class="box"><h3>🏷️ Tags</h3>
+      <details class="box fold" data-box="tags" ${S.openBoxes.has('tags') ? 'open' : ''}><summary><h3>🏷️ Tags</h3></summary>
         ${tagEditor(f, 'tags', 'Tags', '✨')}
         ${tagEditor(f, 'placetags', 'Places', '📍')}
-      </div>
+      </details>
 
-      <div class="box"><h3>🎁 Birthday & gifts</h3>
+      <details class="box fold" data-box="birthdaygift" ${S.openBoxes.has('birthdaygift') ? 'open' : ''}><summary><h3>🎁 Birthday & gifts</h3></summary>
         ${$f.bday ? `<p class="small" style="margin:0 0 10px"><b>${fmtDate($f.bday.date)}</b> · ${inDays($f.bday.days)}${$f.bday.age ? ' · turns ' + $f.bday.age : ''}</p>` : ''}
         ${fieldInput(f, 'birthdaydate', 'Birthday', { type: 'date' })}
         ${fieldInput(f, 'gifteffort', 'Birthday gift effort', { placeholder: 'e.g. Card, Small, Big', list: 'dl-effort' })}
         ${fieldInput(f, 'futuregiftideas', 'Future gift ideas', { type: 'textarea', placeholder: 'They mentioned…' })}
         ${fieldInput(f, 'giftslastbrought', 'Gifts last bought', { type: 'textarea' })}
         <datalist id="dl-effort">${allValues('gifteffort', single).concat(allValues('christmasgifteffort', single)).map(v => `<option value="${esc(v.label)}">`).join('')}</datalist>
-      </div>
+      </details>
 
-      <div class="box"><h3>🍽️ Food & preferences</h3>
+      <details class="box fold" data-box="foodpreferen" ${S.openBoxes.has('foodpreferen') ? 'open' : ''}><summary><h3>🍽️ Food & preferences</h3></summary>
         ${fieldInput(f, 'allergydietaryrequirements', 'Allergies / dietary needs', { placeholder: 'e.g. vegetarian, nut allergy' })}
         ${fieldInput(f, 'likes', 'Likes', { type: 'textarea', placeholder: 'Spicy food, jazz, natural wine…' })}
         ${fieldInput(f, 'dislikes', 'Dislikes', { type: 'textarea', placeholder: 'Mushrooms, karaoke…' })}
-      </div>
+      </details>
 
-      <div class="box"><h3>🎄 Christmas</h3>
+      <details class="box fold" data-box="christmas" ${S.openBoxes.has('christmas') ? 'open' : ''}><summary><h3>🎄 Christmas</h3></summary>
         <div class="row" style="margin-bottom:12px"><div class="grow"><b>Send a card</b></div>
           <button class="switch ${isYes(f.christmascard) ? 'on' : ''}" data-act="toggle-card" data-row="${f._row}" aria-label="Christmas card" ${editable('christmascard') ? '' : 'disabled'}></button></div>
         ${fieldInput(f, 'christmasgifteffort', 'Christmas gift effort', { placeholder: 'leave blank for none', list: 'dl-effort' })}
-      </div>
+      </details>
 
-      <div class="box"><h3>🏠 Contact details</h3>
+      <details class="box fold" data-box="contactdetai" ${S.openBoxes.has('contactdetai') ? 'open' : ''}><summary><h3>🏠 Contact details</h3></summary>
         ${fieldInput(f, 'phone', 'Phone', { placeholder: '07…' })}
         ${fieldInput(f, 'address', 'Address', { type: 'textarea' })}
         ${S.cols.address2 ? fieldInput(f, 'address2', 'Address (2nd column)', { type: 'textarea' }) : ''}
         ${addr ? `<div class="links"><button class="btn grow" data-act="copy" data-text="${esc(addr)}">📋 Copy address</button>
           <a class="btn grow" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}" target="_blank" rel="noopener">🗺️ Open map</a></div>` : ''}
-      </div>
+      </details>
 
-      <div class="box"><h3>📝 Notes</h3>
+      <details class="box fold" data-box="notes" ${S.openBoxes.has('notes') ? 'open' : ''}><summary><h3>📝 Notes</h3></summary>
         ${fieldInput(f, 'notes', 'Notes', { type: 'textarea', placeholder: 'News, kids’ names, what to ask about next time…' })}
         ${fieldInput(f, 'meeting', 'How you met / usual meet-up')}
-      </div>
+      </details>
 
-      <div class="box"><h3>🕰️ Log something from earlier</h3>
+      <details class="box fold" data-box="logsomething" ${S.openBoxes.has('logsomething') ? 'open' : ''}><summary><h3>🕰️ Log something from earlier</h3></summary>
         <div class="row"><select class="input" id="pastType" style="width:auto"><option value="meet">🤝 Saw</option><option value="call">📞 Called</option><option value="video">🎥 Video call</option><option value="message">💬 Messaged</option><option value="invite">💌 Invited</option><option value="reached">📥 They got in touch</option></select>
         <input class="input grow" type="date" id="pastDate" max="${iso(today())}" value="${iso(new Date(Date.now() - DAY))}">
         <button class="btn primary" data-act="log-past" data-row="${f._row}">Log</button></div>
-      </div>
+      </details>
 
-      <details class="box"><summary style="font-weight:800;cursor:pointer">🧾 Every column</summary><div style="margin-top:12px">
+      <details class="box fold" data-box="every" ${S.openBoxes.has('every') ? 'open' : ''}><summary><h3>🧾 Every column</h3></summary><div>
         ${S.data.columns.filter(c => !['photo'].includes(c.key)).map(c => c.computed
           ? `<div class="kv small" style="padding:6px 4px;border-bottom:1px solid var(--border)"><span class="muted">${esc(c.label)} 🔒</span><b>${esc(f[c.key]) || '—'}</b></div>`
           : fieldInput(f, c.key, c.label, { type: c.date ? 'date' : undefined })).join('')}
@@ -1754,8 +1716,8 @@
         <button class="switch ${S.data.remindersOn ? 'on' : ''}" data-act="reminders"></button></div>
         <div class="row" style="margin-top:12px"><button class="btn grow" data-act="email-xmas">🎄 Send list now</button><button class="btn grow" data-act="email-bdays">🫶 Send weekly nudge now</button></div></div>
       <div class="box">
-        <div class="row"><div class="grow"><b>📆 Use my Google Calendar</b><div class="small muted">Spots events with friends (by name, or by the Email column) and suggests catch-ups and plans. Nothing is logged until you confirm.</div></div>
-          <button class="switch ${S.prefs.useCalendar ? 'on' : ''}" data-act="cal-toggle"></button></div>
+        <div class="row"><div class="grow"><b>🎮 Game bits</b><div class="small muted">XP, levels, streaks, quests and badges. Your friendship score stays either way.</div></div>
+          <button class="switch ${gameOn() ? 'on' : ''}" data-act="game-toggle"></button></div>
         <div class="row" style="margin-top:12px"><div class="grow"><b>🤖 Assume plans happened</b><div class="small muted">${AUTO_CONFIRM_DAYS} days after a plan’s date it’s logged as a catch-up. Today shows them so you can say it didn’t happen.</div></div>
           <button class="switch ${S.prefs.autoConfirm !== false ? 'on' : ''}" data-act="auto-toggle"></button></div></div>
       <button class="btn block" style="margin-bottom:12px" data-act="progress">🏆 Progress, badges & reliability</button>
@@ -1946,7 +1908,7 @@
 
   document.addEventListener('click', e => {
     const tab = e.target.closest('[data-tab]');
-    if (tab) { S.tab = tab.dataset.tab; window.scrollTo(0, 0); render(); return; }
+    if (tab) { S.tab = tab.dataset.tab; if (S.sheet) closeSheet(); window.scrollTo(0, 0); render(); return; }
     const a = e.target.closest('[data-act]');
     if (!a) {
       const open = e.target.closest('[data-open]');
@@ -1958,6 +1920,18 @@
     const v = a.dataset.v;
     switch (a.dataset.act) {
       case 'refresh': refresh(); break;
+      case 'snooze': {
+        const evs = addEvents([{ name: f.name, type: 'snooze' }]);
+        toast(`💤 ${f.name.split(' ')[0]} will come back in ${SNOOZE_DAYS} days`, { undo: () => removeEventsLocal(evs) });
+        break;
+      }
+      case 'more-checks': S.showAllChecks = true; render(); break;
+      case 'more-due': S.showAllDue = true; render(); break;
+      case 'game-toggle': savePrefs({ game: !gameOn() }); break;
+      case 'reminders-on':
+        api('setReminders', true).then(r => { S.data.remindersOn = r; render(); toast('📬 Monday emails on'); }).catch(err => toast('⚠️ ' + err.message));
+        break;
+      case 'reminders-hide': savePrefs({ remindersPromptHidden: true }); break;
       case 'quick': openSheet('quick'); setTimeout(() => { const t = $('#quickText'); t && t.focus(); }, 300); break;
       case 'quick-day': S.quick.day = v; renderSheetKeepingInputs(); break;
       case 'quick-tap': {
@@ -1977,19 +1951,7 @@
         break;
       }
       case 'plan-org': S.sheet.org = S.sheet.org === v ? '' : v; renderSheetKeepingInputs(); break;
-      case 'cal-on': savePrefs({ useCalendar: true }, '📆 Calendar on. Looking for catch-ups…').then(() => checkCalendar(true)); break;
-      case 'cal-hide': savePrefs({ calPromptHidden: true }); break;
-      case 'cal-toggle': savePrefs({ useCalendar: !S.prefs.useCalendar }).then(() => S.prefs.useCalendar ? checkCalendar(true) : (S.cal = [], render())); break;
       case 'auto-toggle': savePrefs({ autoConfirm: S.prefs.autoConfirm === false }); break;
-      case 'cal-one': applyCalendar(S.cal.filter(c => c.key === v)); break;
-      case 'cal-all': applyCalendar(S.cal.slice(0, 8)); break;
-      case 'cal-skip': {
-        const c = S.cal.find(x => x.key === v);
-        S.cal = S.cal.filter(x => x.key !== v);
-        if (c) savePrefs({ calDismissed: [...(S.prefs.calDismissed || []), c.id].slice(-300) });
-        render();
-        break;
-      }
       case 'auto-ok': ackAuto(v); render(); break;
       case 'auto-they': case 'auto-me': {
         const ev = S.log.find(e => e.id === v);
@@ -2025,7 +1987,7 @@
         if (f.$.rel.pendingInvite) evs.push({ name: f.name, type: 'invite_yes' });
         save(f, { nextplan: what, nextplandate: when }).then(() => {
           addEvents(evs);
-          toast(`📅 Plan: ${what}${when ? ' · ' + fmtDate(parseDate(when)) : ''} · +${XP.booked} XP`);
+          toast(`📅 Plan: ${what}${when ? ' · ' + fmtDate(parseDate(when)) : ''}${xpText(XP.booked)}`);
         }).catch(() => {});
         break;
       }
@@ -2133,6 +2095,12 @@
     }
   });
 
+  // Remember which friend-page sections are open, so saving a field doesn't fold them away.
+  document.addEventListener('toggle', e => {
+    const d = e.target;
+    if (d.dataset && d.dataset.box) d.open ? S.openBoxes.add(d.dataset.box) : S.openBoxes.delete(d.dataset.box);
+  }, true);
+
   // Chart bars: show the week's value on hover, focus or tap.
   ['pointerover', 'focusin', 'click'].forEach(t => document.addEventListener(t, e => {
     const bar = e.target.closest && e.target.closest('[data-tip]');
@@ -2205,7 +2173,7 @@
     closeSheet(); render(); confetti(); vibrate();
     const send = key => write('updateMany', JSON.stringify(updates.map(u => ({ row: u.row, name: u.name, changes: u[key] }))));
     const evs = addEvents(list.map(f => ({ name: f.name, type: 'invite', note: f.$.tier ? 't' + f.$.tier : '' })));
-    send('changes').then(() => toast(`💌 Marked ${plural(list.length, 'friend')} as invited · +${list.length * XP.invite} XP`, {
+    send('changes').then(() => toast(`💌 Marked ${plural(list.length, 'friend')} as invited${xpText(list.length * XP.invite)}`, {
       undo: () => { updates.forEach(u => { Object.assign(u.f, u.prev); compute(u.f); }); removeEventsLocal(evs); render(); send('prev').catch(err => toast('⚠️ ' + err.message)); }
     })).catch(err => { updates.forEach(u => { Object.assign(u.f, u.prev); compute(u.f); }); render(); toast('⚠️ ' + err.message); });
   }

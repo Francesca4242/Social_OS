@@ -21,7 +21,6 @@ const EXTRA_COLUMNS = {
   nextplandate: 'Next Plan Date',
   lastinvited: 'Last Invited',
   phone: 'Phone',
-  email: 'Email',
   likes: 'Likes',
   dislikes: 'Dislikes',
   notes: 'Notes'
@@ -35,7 +34,7 @@ const SCORING = {
   inviteSnoozeDays: 14, // someone you invited recently isn't suggested again for this long
   nearKm: 30            // "near" a home base
 };
-const DEFAULT_PREFS = { bases: [], current: '', autoDistance: true, useCalendar: false, autoConfirm: true, calDismissed: [] };
+const DEFAULT_PREFS = { bases: [], current: '', autoDistance: true, autoConfirm: true };
 
 // Used only when the spreadsheet is brand new (e.g. a friend setting up their own copy).
 const STARTER_HEADERS = [
@@ -430,32 +429,6 @@ function geocode(queriesJson) {
   return JSON.stringify(out);
 }
 
-/* ───────────────────────── Calendar ───────────────────────── */
-
-// Your calendar events around now, so the app can spot catch-ups with friends. Read-only; nothing is stored.
-function scanCalendar(daysBack, daysAhead) {
-  const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
-  const now = new Date();
-  const start = new Date(now.getTime() - daysBack * 86400000), end = new Date(now.getTime() + daysAhead * 86400000);
-  const out = [];
-  CalendarApp.getAllCalendars().forEach(cal => {
-    if (cal.isHidden() || /#(contacts|holiday)@/.test(cal.getId())) return; // skip birthday and bank-holiday calendars
-    cal.getEvents(start, end).slice(0, 300).forEach(e => {
-      try { if (e.getMyStatus() === CalendarApp.GuestStatus.NO) return; } catch (x) { /* not a guest */ }
-      const text = [e.getTitle(), e.getLocation(), e.getDescription()].join(' ');
-      out.push({
-        id: (e.getId() + '~' + Utilities.formatDate(e.getStartTime(), tz, 'yyyyMMdd')).replace(/[^\w@.~-]/g, ''),
-        title: e.getTitle(),
-        date: Utilities.formatDate(e.getStartTime(), tz, 'yyyy-MM-dd'),
-        ended: e.getEndTime() < now,
-        video: /zoom\.us|meet\.google|teams\.microsoft|facetime|whereby|video call/i.test(text),
-        guests: e.getGuestList().map(g => g.getEmail().toLowerCase())
-      });
-    });
-  });
-  return JSON.stringify(out.slice(0, 600));
-}
-
 /* ───────────────────────── History ───────────────────────── */
 
 function hiddenSheet_(ss, name, headers) {
@@ -672,6 +645,25 @@ function inviteSuggestions_(friends, rules, geo, prefs, limit) {
   }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
+// Friends past their contact goal, most important first (same idea as the app's "Message" list).
+function sayHiSuggestions_(friends, rules, limit) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysSince = raw => {
+    const p = parseDateParts_(raw);
+    return p && p.y ? Math.max(0, Math.round((today - new Date(p.y, p.m, p.d)) / 86400000)) : null;
+  };
+  return friends.map(f => {
+    const tier = Math.min(parseInt(f.tier, 10) || 0, 6);
+    if (tier < 1) return null;
+    const goal = (rules.tiers[tier] || {}).contactGoal || SCORING.contactGoal[tier];
+    const known = [f.lastcontacted, f.lastseenvideocalled, f.lastcalled].map(daysSince).filter(d => d !== null);
+    const last = known.length ? Math.min.apply(null, known) : null;
+    const ratio = last === null ? 9 : last / goal;
+    return ratio >= 1 ? { f: f, last: last, score: (7 - tier) * Math.min(ratio, 9) } : null;
+  }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
 // Birthdays in the next two weeks, plus who to invite near your current home base.
 function emailWeeklyNudge(skipIfEmpty) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -690,8 +682,13 @@ function emailWeeklyNudge(skipIfEmpty) {
     if (days <= 14) soon.push({ f: f, days: days, next: next, age: b.y && b.y > 1910 ? next.getFullYear() - b.y : null });
   });
   soon.sort((a, b) => a.days - b.days);
-  const invites = inviteSuggestions_(friends, readRules_(ss), readGeo_(ss), prefs, 5);
-  if (!soon.length && !invites.length && skipIfEmpty === true) return 'Nothing to send this week';
+  const rules = readRules_(ss);
+  const invites = inviteSuggestions_(friends, rules, readGeo_(ss), prefs, 5);
+  const inviteNames = invites.map(s => s.f.name);
+  const sayHi = sayHiSuggestions_(friends, rules, 8).filter(s => inviteNames.indexOf(s.f.name) < 0).slice(0, 5);
+  if (!soon.length && !invites.length && !sayHi.length && skipIfEmpty === true) return 'Nothing to send this week';
+  const hiItems = sayHi.map(s => '<li style="margin-bottom:10px"><b>' + htmlEsc_(s.f.name) + '</b>: ' +
+    (s.last === null ? 'no catch-ups logged yet' : s.last + ' days since you were in touch') + '</li>').join('');
 
   const muted = s => '<br><span style="color:#777">' + s + '</span>';
   const bdayItems = soon.map(s => '<li style="margin-bottom:10px"><b>' + htmlEsc_(s.f.name) + '</b>: ' +
@@ -712,6 +709,7 @@ function emailWeeklyNudge(skipIfEmpty) {
       (before ? ' (' + (latest.score >= before.score ? '▲ ' : '▼ ') + Math.abs(latest.score - before.score) + ' on the week before)' : '') + '</p>'
     : '';
   const parts = [];
+  if (sayHi.length) parts.push(sayHi.length + ' to get in touch with');
   if (soon.length) parts.push(soon.length + ' birthday' + (soon.length === 1 ? '' : 's'));
   if (invites.length) parts.push(invites.length + ' to invite near ' + prefs.current);
   const to = Session.getEffectiveUser().getEmail();
@@ -719,6 +717,7 @@ function emailWeeklyNudge(skipIfEmpty) {
     to: to,
     subject: '🫶 This week: ' + (parts.join(' · ') || 'all quiet'),
     htmlBody: '<div style="font-family:Arial,sans-serif;color:#2b2118">' + scoreLine +
+      (hiItems ? '<h2>💬 Get in touch with</h2><ul style="padding-left:18px">' + hiItems + '</ul>' : '') +
       '<h2>🎂 Birthdays coming up</h2><ul style="padding-left:18px">' + (bdayItems || '<li>None in the next two weeks.</li>') + '</ul>' +
       (prefs.current
         ? '<h2>💌 Who to invite near ' + htmlEsc_(prefs.current) + '</h2><ul style="padding-left:18px">' + (inviteItems || '<li>Everyone nearby is up to date.</li>') + '</ul>'
