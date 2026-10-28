@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Social OS</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Social OS">
+  <meta name="theme-color" content="#ff6b4a">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <style>
+    :root { --bg: #fbf6f0; --card: #fff; --text: #2b2118; --muted: #85766a; --accent: #ff6b4a; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #16121d; --card: #211b2b; --text: #f6efe8; --muted: #a99cb6; } }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, sans-serif; display: grid; place-items: center; padding: 24px 16px; box-sizing: border-box; }
+    .card { max-width: 420px; width: 100%; background: var(--card); border-radius: 28px; padding: 28px 22px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.08); }
+    img { width: 96px; height: 96px; border-radius: 22px; }
+    h1 { margin: 12px 0 4px; font-size: 26px; }
+    p { color: var(--muted); margin: 8px 0; }
+    input { width: 100%; box-sizing: border-box; padding: 14px; border-radius: 14px; border: 1.5px solid #ddd; font-size: 16px; margin: 12px 0; background: transparent; color: inherit; }
+    .btn { display: block; width: 100%; padding: 14px; border: 0; border-radius: 16px; background: var(--accent); color: #fff; font-size: 17px; font-weight: 700; text-decoration: none; cursor: pointer; box-sizing: border-box; }
+    ol { text-align: left; color: var(--muted); padding-left: 22px; }
+    .err { color: #e5484d; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="apple-touch-icon.png" alt="">
+    <h1>Social OS</h1>
+    <div id="setup" hidden>
+      <p>Paste your Social OS web-app link (from Apps Script → Deploy → Manage deployments).</p>
+      <input id="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+      <div class="err" id="err"></div>
+      <button class="btn" id="save">Continue</button>
+    </div>
+    <div id="ready" hidden>
+      <a class="btn" id="open" href="#">Open Social OS 🫶</a>
+      <p style="margin-top:18px"><b>Put it on your home screen:</b></p>
+      <ol>
+        <li><b>iPhone:</b> tap Share <span aria-hidden="true">⬆️</span> → “Add to Home Screen”.</li>
+        <li><b>Android:</b> tap ⋮ → “Add to Home screen” or “Install app”.</li>
+      </ol>
+      <p style="font-size:13px">Your link only lives on this device and in the bookmark. Nothing is sent anywhere.</p>
+      <p><a href="#" id="change" style="color:var(--muted);font-size:13px">Use a different link</a></p>
+    </div>
+  </div>
+  <script>
+    // Only ever redirect to a Google Apps Script web app.
+    const VALID = /^https:\/\/script\.google\.com\/(macros|a\/macros\/[^\/]+)\/s\/[\w-]+\/(exec|dev)$/;
+    const params = new URLSearchParams(location.search);
+    let app = params.get('app');
+    try { if (!app) app = localStorage.getItem('socialos.app'); } catch (e) {}
+    if (app && !VALID.test(app)) app = null;
+    const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches || params.has('launch');
+
+    if (app && standalone) {
+      location.replace(app);
+    } else if (app) {
+      try { localStorage.setItem('socialos.app', app); } catch (e) {}
+      document.getElementById('ready').hidden = false;
+      document.getElementById('open').href = app;
+    } else {
+      document.getElementById('setup').hidden = false;
+    }
+
+    document.getElementById('save').onclick = () => {
+      const v = document.getElementById('url').value.trim();
+      if (!VALID.test(v)) { document.getElementById('err').textContent = 'That doesn’t look like an Apps Script link ending in /exec.'; return; }
+      // Keep the link in the address so “Add to Home Screen” remembers it.
+      location.search = '?app=' + encodeURIComponent(v);
+    };
+    document.getElementById('change').onclick = e => {
+      e.preventDefault();
+      try { localStorage.removeItem('socialos.app'); } catch (err) {}
+      location.search = '';
+    };
+  </script>
+</body>
+</html>

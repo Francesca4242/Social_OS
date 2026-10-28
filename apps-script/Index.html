@@ -1,0 +1,2322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Fonts load in the background: if they're slow or blocked, the app starts anyway with the phone's own font. -->
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <style>
+    :root {
+      --bg: #fbf6f0; --surface: #ffffff; --surface-2: #f5ede4; --border: #eadccd;
+      --text: #2b2118; --muted: #85766a; --accent: #ff6b4a; --accent-ink: #ffffff; --accent-soft: #ffe7de;
+      --good: #19a06b; --mid: #e0a100; --bad: #e5484d;
+      --t1: #ff4f8b; --t2: #ff8a3d; --t3: #f2b600; --t4: #2fbf71; --t5: #1fb2c4; --t6: #7c86f2;
+      --shadow: 0 1px 2px rgba(70, 40, 10, .06), 0 8px 24px rgba(70, 40, 10, .07);
+      --radius: 22px; --bar-h: 64px; --top-h: 60px;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #16121d; --surface: #211b2b; --surface-2: #2b2437; --border: #393046;
+        --text: #f6efe8; --muted: #a99cb6; --accent: #ff7d5e; --accent-ink: #1b1219; --accent-soft: #3f2530;
+        --good: #3ccf8e; --mid: #f5c33b; --bad: #ff6b6b;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #16121d; --surface: #211b2b; --surface-2: #2b2437; --border: #393046;
+      --text: #f6efe8; --muted: #a99cb6; --accent: #ff7d5e; --accent-ink: #1b1219; --accent-soft: #3f2530;
+      --good: #3ccf8e; --mid: #f5c33b; --bad: #ff6b6b;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body { font-family: Nunito, system-ui, -apple-system, sans-serif; font-size: 15px; line-height: 1.4; -webkit-font-smoothing: antialiased; }
+    h1, h2, h3, .display { font-family: Fredoka, Nunito, sans-serif; font-weight: 600; margin: 0; }
+    button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+    input, select, textarea { font: inherit; font-size: 16px; color: var(--text); }
+    a { color: var(--accent); }
+    [hidden] { display: none !important; }
+
+    /* Top bar */
+    .topbar { position: sticky; top: 0; z-index: 40; height: var(--top-h); display: flex; align-items: center; gap: 10px; padding: 0 16px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+    .topbar .logo { width: 34px; height: 34px; border-radius: 10px; flex: none; }
+    .topbar h1 { font-size: 21px; flex: 1; letter-spacing: -.2px; }
+    .icon-btn { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; font-size: 19px; background: var(--surface); box-shadow: var(--shadow); }
+    .icon-btn:active { transform: scale(.94); }
+    .icon-btn.spinning span { display: inline-block; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    main { max-width: 640px; margin: 0 auto; padding: 4px 16px calc(var(--bar-h) + 96px); }
+
+    /* Bottom tabs */
+    .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex; justify-content: center; background: var(--surface); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); }
+    .tabbar-inner { display: flex; width: 100%; max-width: 640px; }
+    .tab { position: relative; flex: 1; height: var(--bar-h); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11.5px; font-weight: 800; color: var(--muted); }
+    .tab .ico { font-size: 22px; line-height: 1; filter: grayscale(1); opacity: .65; transition: transform .15s; }
+    .tab.on { color: var(--accent); }
+    .tab.on .ico { filter: none; opacity: 1; transform: translateY(-2px) scale(1.12); }
+    .tab .badge { position: absolute; top: 6px; left: calc(50% + 8px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 11px; display: grid; place-items: center; }
+
+    .fab { position: fixed; right: max(16px, calc(50vw - 304px)); bottom: calc(var(--bar-h) + 18px + env(safe-area-inset-bottom)); z-index: 41; width: 58px; height: 58px; border-radius: 20px; background: var(--accent); color: var(--accent-ink); font-size: 30px; font-weight: 700; box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 40%, transparent); }
+    .fab:active { transform: scale(.94); }
+
+    /* Generic bits */
+    .hello { margin: 6px 2px 14px; }
+    .hello h2 { font-size: 26px; }
+    .hello p { margin: 2px 0 0; color: var(--muted); font-weight: 600; }
+    .section-title { font-family: Fredoka, sans-serif; font-weight: 600; font-size: 17px; margin: 22px 2px 10px; display: flex; align-items: center; gap: 8px; }
+    .section-title .count { font-family: Nunito; font-size: 13px; color: var(--muted); font-weight: 700; }
+    .muted { color: var(--muted); }
+    .small { font-size: 13px; }
+    .row { display: flex; align-items: center; gap: 8px; }
+    .grow { flex: 1; min-width: 0; }
+    .scroll-x { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: none; }
+    .scroll-x::-webkit-scrollbar { display: none; }
+
+    .seg { display: flex; margin-top: 4px; background: var(--surface-2); border-radius: 16px; padding: 4px; gap: 4px; margin-bottom: 14px; }
+    .seg button { position: relative; flex: 1; min-width: 0; padding: 9px 2px; border-radius: 12px; font-weight: 800; font-size: 13.5px; color: var(--muted); white-space: nowrap; }
+    .seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+    .seg .n { position: absolute; top: -6px; right: -2px; min-width: 19px; height: 19px; line-height: 19px; padding: 0 5px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 11px; }
+
+    .chip { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: 999px; background: var(--surface); border: 1.5px solid var(--border); font-weight: 700; font-size: 13.5px; white-space: nowrap; }
+    .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .chip .n { opacity: .65; font-size: 12px; }
+    .chip.tiny { padding: 3px 9px; font-size: 12px; border-width: 1px; background: var(--surface-2); border-color: transparent; }
+    .chip .x { margin-left: 2px; opacity: .6; font-weight: 800; }
+    .tier-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 16px; border-radius: 16px; font-weight: 800; background: var(--surface-2); }
+    .btn.primary { background: var(--accent); color: var(--accent-ink); }
+    .btn.block { width: 100%; }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .5; }
+
+    .field { display: block; margin-bottom: 12px; }
+    .field > span { display: block; font-size: 12.5px; font-weight: 800; color: var(--muted); margin: 0 0 5px 4px; text-transform: uppercase; letter-spacing: .4px; }
+    .input { width: 100%; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); border: 1.5px solid transparent; outline: none; }
+    .input:focus { border-color: var(--accent); background: var(--surface); }
+    textarea.input { min-height: 74px; resize: vertical; }
+
+    .search { position: relative; margin-bottom: 12px; }
+    .search .input { padding-left: 42px; background: var(--surface); box-shadow: var(--shadow); border-radius: 18px; }
+    .search .mag { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); opacity: .55; }
+
+    /* Friend card */
+    .card { background: var(--surface); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow); cursor: pointer; animation: pop .25s ease both; }
+    @keyframes pop { from { opacity: 0; transform: translateY(6px); } }
+    .card-top { display: flex; align-items: center; gap: 12px; }
+    .avatar { position: relative; flex: none; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-family: Fredoka; font-weight: 600; font-size: 18px; overflow: hidden; }
+    .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .avatar.lg { width: 76px; height: 76px; font-size: 28px; }
+    .avatar.sm { width: 36px; height: 36px; font-size: 14px; }
+    .name { font-family: Fredoka; font-weight: 600; font-size: 18px; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sub { color: var(--muted); font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .ring { flex: none; position: relative; width: 48px; height: 48px; }
+    .ring svg { transform: rotate(-90deg); }
+    .ring b { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; font-weight: 800; }
+    .reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .reason { font-size: 12.5px; font-weight: 700; padding: 4px 10px; border-radius: 10px; background: var(--surface-2); color: var(--muted); }
+    .reason.warn { background: color-mix(in srgb, var(--bad) 13%, transparent); color: var(--bad); }
+    .reason.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+    .reason.bday { background: color-mix(in srgb, var(--t1) 14%, transparent); color: var(--t1); }
+    .actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+    .act { padding: 9px 2px 8px; border-radius: 14px; background: var(--surface-2); font-size: 12px; font-weight: 800; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .act .e { font-size: 19px; line-height: 1; }
+    .act:active { transform: scale(.93); background: var(--accent-soft); }
+    .act.on { background: var(--accent-soft); color: var(--accent); }
+
+    .empty { text-align: center; padding: 48px 20px; color: var(--muted); }
+    .empty .big { font-size: 54px; }
+    .empty h3 { color: var(--text); margin: 8px 0 4px; }
+
+    .banner { border-radius: var(--radius); padding: 14px; margin-bottom: 12px; background: var(--accent-soft); }
+    .banner h3 { font-size: 16px; margin-bottom: 6px; }
+    .bday-pill { flex: none; width: 128px; background: var(--surface); border-radius: 18px; padding: 12px; text-align: center; cursor: pointer; box-shadow: var(--shadow); }
+    .bday-pill .avatar { margin: 0 auto 6px; }
+    .bday-pill .when { font-weight: 800; color: var(--t1); font-size: 13px; }
+
+    .list-row { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--surface); border-radius: 18px; margin-bottom: 8px; box-shadow: var(--shadow); cursor: pointer; }
+    .list-row .meta { text-align: right; font-weight: 800; font-size: 13px; }
+    .month { font-family: Fredoka; font-weight: 600; color: var(--muted); margin: 18px 4px 8px; font-size: 14px; text-transform: uppercase; letter-spacing: .6px; }
+
+    /* Bottom sheet */
+    .sheet { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end; justify-content: center; }
+    .sheet-bg { position: absolute; inset: 0; background: rgba(15, 8, 20, .45); animation: fade .2s both; }
+    @keyframes fade { from { opacity: 0; } }
+    .sheet-panel { position: relative; width: 100%; max-width: 640px; max-height: 92vh; max-height: 92dvh; overflow-y: auto; background: var(--bg); border-radius: 28px 28px 0 0; padding: 10px 18px calc(28px + env(safe-area-inset-bottom)); animation: up .28s cubic-bezier(.2, .9, .3, 1.1) both; overscroll-behavior: contain; }
+    @keyframes up { from { transform: translateY(100%); } }
+    .grabber { width: 44px; height: 5px; border-radius: 3px; background: var(--border); margin: 0 auto 10px; }
+    .sheet-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .sheet-head h2 { font-size: 24px; }
+    .close { position: sticky; top: 0; float: right; width: 36px; height: 36px; border-radius: 50%; background: var(--surface-2); font-size: 16px; z-index: 2; }
+    .box { background: var(--surface); border-radius: 20px; padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow); }
+    .box h3 { font-size: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .bar { height: 9px; border-radius: 6px; background: var(--surface-2); overflow: hidden; margin: 6px 0 4px; }
+    .bar i { display: block; height: 100%; border-radius: 6px; }
+    .kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+    .kv b { font-weight: 800; }
+    .tier-pick { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+    .tier-pick button { padding: 10px 0; border-radius: 12px; background: var(--surface-2); font-weight: 800; font-family: Fredoka; font-size: 16px; }
+    .tier-pick button.on { color: #fff; }
+    .tag-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .tag-edit input { flex: 1; min-width: 120px; padding: 7px 12px; border-radius: 999px; border: 1.5px dashed var(--border); background: transparent; outline: none; font-size: 15px; }
+    .tag-edit input:focus { border-color: var(--accent); border-style: solid; }
+    .links { display: flex; gap: 8px; flex-wrap: wrap; }
+    .links a { text-decoration: none; }
+    .help p { margin: 0 0 8px; font-size: 14px; }
+    .help table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .help td, .help th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+    .switch { width: 50px; height: 30px; border-radius: 15px; background: var(--border); position: relative; flex: none; transition: background .2s; }
+    .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: left .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    .switch.on { background: var(--good); }
+    .switch.on::after { left: 23px; }
+
+    /* Map */
+    #mapwrap { position: fixed; top: var(--top-h); left: 0; right: 0; bottom: calc(var(--bar-h) + env(safe-area-inset-bottom)); display: flex; flex-direction: column; z-index: 1; }
+    .map-controls { padding: 0 16px 10px; display: flex; gap: 8px; max-width: 640px; width: 100%; margin: 0 auto; }
+    .map-controls .input { background: var(--surface); box-shadow: var(--shadow); }
+    .map-controls select { width: auto; flex: none; }
+    #map { flex: 1; min-height: 220px; background: var(--surface-2); }
+    .nearby { max-height: 42%; overflow-y: auto; background: var(--bg); padding: 12px 16px 6px; border-top: 1px solid var(--border); }
+    .nearby-inner { max-width: 608px; margin: 0 auto; }
+    .map-status { position: absolute; left: 50%; transform: translateX(-50%); top: 64px; z-index: 500; background: var(--surface); padding: 6px 14px; border-radius: 999px; font-weight: 800; font-size: 13px; box-shadow: var(--shadow); }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); } }
+    :root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
+    .pin { display: grid; place-items: center; border-radius: 50%; color: #fff; font-family: Fredoka; font-weight: 600; font-size: 13px; border: 3px solid #fff; box-shadow: 0 3px 10px rgba(0,0,0,.3); }
+    .pin.group { background: var(--text); color: var(--bg); }
+    .pin.me { background: var(--accent); font-size: 16px; }
+    .leaflet-popup-content-wrapper { border-radius: 16px; background: var(--surface); color: var(--text); }
+    .leaflet-popup-tip { background: var(--surface); }
+    .leaflet-popup-content { margin: 12px 14px; font-family: Nunito; }
+    .popup-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-weight: 800; }
+
+    /* Scoreboard & progress */
+    .score-card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow); cursor: pointer; }
+    .eyebrow { font-size: 11.5px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+    .big-num { font-family: Fredoka; font-weight: 700; font-size: 46px; line-height: 1; }
+    .delta { display: inline-block; font-family: Nunito; font-size: 13px; font-weight: 800; margin-left: 8px; padding: 3px 9px; border-radius: 10px; background: var(--surface-2); color: var(--muted); vertical-align: middle; }
+    .delta.up { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+    .delta.down { color: var(--bad); background: color-mix(in srgb, var(--bad) 13%, transparent); }
+    .pills { display: flex; gap: 8px; margin-top: 14px; }
+    .pill { flex: 1; background: var(--surface-2); border-radius: 14px; padding: 8px 10px; min-width: 0; }
+    .pill b { font-family: Fredoka; font-size: 18px; display: block; }
+    .xpbar { height: 6px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 4px; }
+    .xpbar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+    .quest { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13.5px; font-weight: 700; }
+    .quest:first-of-type { border-top: 0; }
+    .quest .tick { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-size: 13px; flex: none; }
+    .quest.done .tick { background: var(--good); color: #fff; }
+    .quest.done .q { color: var(--muted); text-decoration: line-through; }
+    .badges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .badge-tile { background: var(--surface-2); border-radius: 16px; padding: 10px 6px; text-align: center; font-size: 12px; font-weight: 700; }
+    .badge-tile .e { font-size: 30px; display: block; }
+    .badge-tile.locked .e { filter: grayscale(1); opacity: .35; }
+    .badge-tile.locked { color: var(--muted); }
+    .chart-tip { min-height: 20px; font-size: 13px; font-weight: 700; color: var(--muted); text-align: center; }
+    .bar-hit { cursor: pointer; }
+    .bar-hit:hover rect.bg, .bar-hit:focus rect.bg { fill: var(--surface-2); }
+
+    /* Today's picks */
+    .pick { background: var(--surface); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
+    .pick .why { font-size: 13.5px; font-weight: 700; color: var(--muted); margin-top: 2px; }
+    .pick .btns { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 6px; margin-top: 12px; }
+    .pick .btns .btn { padding: 10px 4px; font-size: 13px; }
+    .score-row { display: flex; align-items: center; gap: 12px; background: var(--surface); border-radius: 18px; padding: 10px 14px; margin: 4px 0 14px; box-shadow: var(--shadow); cursor: pointer; }
+    .score-row .num { font-family: Fredoka; font-weight: 700; font-size: 30px; line-height: 1; }
+    .mini { font-weight: 800; font-size: 14px; white-space: nowrap; }
+    .check-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+    .check-row:first-of-type { border-top: 0; }
+    .check-row .btn { padding: 8px 10px; font-size: 13px; }
+    details.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; }
+    details.fold > summary::-webkit-details-marker { display: none; }
+    details.fold > summary h3 { margin: 0; flex: 1; }
+    details.fold > summary::after { content: '›'; font-size: 22px; color: var(--muted); transition: transform .15s; }
+    details.fold[open] > summary::after { transform: rotate(90deg); }
+    details.fold[open] > summary { margin-bottom: 10px; }
+
+    /* Toast */
+    #toast { position: fixed; left: 50%; bottom: calc(var(--bar-h) + 20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 8px; width: min(92vw, 460px); pointer-events: none; }
+    .toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 16px; background: var(--text); color: var(--bg); font-weight: 700; box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: up .25s both; }
+    .toast button { color: var(--accent); font-weight: 800; margin-left: auto; }
+    .confetti { position: fixed; z-index: 90; pointer-events: none; font-size: 24px; animation: fly 1.1s ease-out forwards; }
+    @keyframes fly { to { transform: translate(var(--dx), var(--dy)) rotate(var(--r)); opacity: 0; } }
+    .loading { text-align: center; padding: 80px 20px; color: var(--muted); font-weight: 700; }
+    .loading .big { font-size: 46px; animation: bob 1s ease-in-out infinite alternate; }
+    @keyframes bob { to { transform: translateY(-8px); } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF9A5A"/><stop offset=".55" stop-color="#FF5E7E"/><stop offset="1" stop-color="#8B5CF6"/></linearGradient></defs><rect width="512" height="512" rx="112" fill="url(#lg)"/><circle cx="190" cy="316" r="104" fill="#FFD166" stroke="#fff" stroke-width="12"/><circle cx="330" cy="316" r="104" fill="#7BE0C3" stroke="#fff" stroke-width="12"/><circle cx="160" cy="300" r="13" fill="#3B2A20"/><circle cx="210" cy="300" r="13" fill="#3B2A20"/><circle cx="312" cy="300" r="13" fill="#3B2A20"/><circle cx="362" cy="300" r="13" fill="#3B2A20"/><path d="M155 338q30 30 60 0M307 338q30 30 60 0" fill="none" stroke="#3B2A20" stroke-width="13" stroke-linecap="round"/><path d="M260 196c-8-22-56-34-56 6 0 30 56 58 56 58s56-28 56-58c0-40-48-28-56-6z" fill="#fff"/></svg>
+    <h1>Social OS</h1>
+    <button class="icon-btn" id="syncBtn" data-act="refresh" aria-label="Refresh"><span>🔄</span></button>
+    <button class="icon-btn" data-act="settings" aria-label="Settings"><span>⚙️</span></button>
+  </header>
+
+  <main id="view"><div class="loading"><div class="big">🫶</div>Gathering your people…<div class="small" id="loadHint" style="margin-top:10px;font-weight:600"></div></div></main>
+
+  <div id="mapwrap" hidden>
+    <div class="map-controls">
+      <input class="input grow" id="placeInput" placeholder="I'm in… (e.g. Manchester)" enterkeyhint="search">
+      <button class="icon-btn" data-tab="places" aria-label="Back to the list"><span>📋</span></button>
+      <button class="icon-btn" data-act="locate" aria-label="Use my location"><span>📍</span></button>
+      <select class="input" id="radius" aria-label="Distance">
+        <option value="5">5 km</option><option value="15">15 km</option><option value="30" selected>30 km</option><option value="80">80 km</option>
+      </select>
+    </div>
+    <div id="map"></div>
+    <div class="map-status" id="mapStatus" hidden></div>
+    <div class="nearby" id="nearby" hidden><div class="nearby-inner" id="nearbyList"></div></div>
+  </div>
+
+  <button class="fab" data-act="quick" aria-label="Log a catch-up">⚡</button>
+
+  <nav class="tabbar"><div class="tabbar-inner">
+    <button class="tab" data-tab="today"><span class="ico">🏡</span>Today<span class="badge" id="todayBadge" hidden></span></button>
+    <button class="tab" data-tab="friends"><span class="ico">👯</span>Friends</button>
+    <button class="tab" data-tab="places"><span class="ico">📍</span>Places</button>
+    <button class="tab" data-tab="dates"><span class="ico">🎂</span>Dates</button>
+  </div></nav>
+
+  <div id="sheet" class="sheet" hidden><div class="sheet-bg" data-act="close"></div><div class="sheet-panel" id="sheetPanel"></div></div>
+  <div id="toast"></div>
+  <script>
+    // Safety net: runs before the app, so a failure shows a reason instead of an endless spinner.
+    // Written in old-style JavaScript on purpose, so it works even if the main code doesn't.
+    window.__started = false;
+    window.__loaded = false;
+    function bootError(msg) {
+      var v = document.getElementById('view');
+      if (!v || window.__loaded) return;
+      v.innerHTML = '<div style="padding:40px 8px;text-align:center"><div style="font-size:48px">😕</div>' +
+        '<h3>Social OS didn’t start</h3><div class="box" style="text-align:left;margin:14px 0;word-break:break-word"></div>' +
+        '<button class="btn primary" onclick="location.reload()">Reload</button>' +
+        '<p class="small muted" style="text-align:left;margin-top:16px">Make sure Index.html was pasted in full (it ends with &lt;/html&gt;) and saved, then deploy a new version. ' +
+        'You can also open your app link with <b>?check=1</b> on the end to check that it can read your sheet.</p></div>';
+      v.querySelector('.box').textContent = msg;
+    }
+    window.addEventListener('error', function (e) {
+      if (!window.__loaded) bootError('Error: ' + (e.message || 'unknown') + (e.lineno ? ' (line ' + e.lineno + ')' : ''));
+    });
+    setTimeout(function () {
+      if (!window.__started) bootError('The app’s code never started. This usually means Index.html is incomplete or an old copy is deployed.');
+    }, 8000);
+  </script>
+
+  <script>
+  /* ───────────── Settings you can tweak ───────────── */
+  // Used when the Rules sheet doesn't say. Tier 1 = closest. Proximity 1 = furthest away.
+  const DEFAULTS = {
+    contactGoal: { 1: 4, 2: 12, 3: 30, 4: 90, 5: 150, 6: 365 },
+    seeMultiplier: { 1: 0.5, 2: 0.75, 3: 1, 4: 1.5, 5: 2, 6: 3 },
+    inviteGoal: { 1: 365, 2: 150, 3: 120, 4: 60, 5: 12, 6: 10 }
+  };
+  const MAX_SEE_GOAL = 1095;   // never ask to see anyone less than once every 3 years
+  // Friendship battery: every catch-up tops it up and it slowly drains.
+  // In person counts most; on their own, messages can only fill it so far, calls a bit more, video more again.
+  const BATTERY = {
+    points: { meet: 100, video: 60, call: 45, message: 25 },
+    caps: { message: 40, call: 60, video: 75 },
+    capsFar: { message: 40, call: 70, video: 90 } // friends abroad or 5+ hours away, where video is the realistic option
+  };
+  const PLAN_FLOOR = 70;       // with a plan in the diary, a friendship counts as on track
+  const AUTO_CONFIRM_DAYS = 2; // plans are assumed to have happened this many days after the date
+  const INVITE_SNOOZE = 14;    // after inviting someone, don't nag about them for this many days
+  const NEAR_KM = 30;          // how close counts as "near" a home base or place
+  // Distance from your current home base → the Rules sheet's proximity bands.
+  function distanceBand(km, base, loc) {
+    const abroad = (base.country && loc.country && base.country !== loc.country) || km > 700;
+    const band = abroad ? 1 : km > 400 ? 2 : km > 30 ? 3 : km > 8 ? 4 : km > 1.5 ? 5 : 6;
+    return loc.fromTag ? Math.min(band, 4) : band; // a place tag like "London" is only city-precise
+  }
+  const CACHE_KEY = 'socialos.v2';
+  const CLIENT_VERSION = '2026-10-28'; // must match APP_VERSION in Code.gs
+
+  /* ───────────── State ───────────── */
+  const S = {
+    data: null, friends: [], byRow: {}, cols: {}, prefs: { bases: [], current: '', autoDistance: true }, openPlaces: new Set(), openBoxes: new Set(), log: [], logByName: {}, weeks: [], quick: null,
+    tab: 'today', todayFilter: 'all',
+    query: '', tiers: new Set(), status: '', sort: 'priority',
+    datesView: 'birthdays', sheet: null,
+    geo: {}, here: null, map: null, layer: null, geocoding: false,
+    chain: Promise.resolve()
+  };
+
+  /* ───────────── Small helpers ───────────── */
+  const $ = (sel, el = document) => el.querySelector(sel);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const splitTags = s => String(s || '').split(/[,;]/).map(t => t.trim()).filter(Boolean);
+  const minN = (...xs) => { const v = xs.filter(x => x != null); return v.length ? Math.min(...v) : null; };
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const isYes = v => { const s = String(v || '').trim().toLowerCase(); return !!s && !['no', 'n', 'false', '0', 'none', '-', 'nope'].includes(s); };
+  const vibrate = () => { try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} };
+
+  function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+  function iso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  const DAY = 86400000;
+  const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+  // Understands yyyy-mm-dd, dd/mm/yyyy (UK), dd/mm, "14 March 1990", "March 14".
+  function parseDate(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    let m, y = null, mo, d;
+    if ((m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s))) [y, mo, d] = [+m[1], m[2] - 1, +m[3]];
+    else if ((m = /^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/.exec(s))) {
+      [mo, d] = [m[2] - 1, +m[1]];
+      if (m[3]) { y = +m[3]; if (y < 100) y += y > (new Date().getFullYear() % 100) ? 1900 : 2000; }
+    } else if ((m = /(\d{1,2})(?:st|nd|rd|th)?[\s\-\/.]+([a-z]{3})[a-z]*\.?(?:,?[\s\-\/.]+(\d{4}|\d{2}))?/i.exec(s)) && MONTHS.includes(m[2].toLowerCase())) {
+      [mo, d, y] = [MONTHS.indexOf(m[2].toLowerCase()), +m[1], m[3] ? +m[3] : null];
+    } else if ((m = /([a-z]{3})[a-z]*\.?[\s\-\/.]+(\d{1,2})(?:st|nd|rd|th)?(?:,?[\s\-\/.]+(\d{4}|\d{2}))?/i.exec(s)) && MONTHS.includes(m[1].toLowerCase())) {
+      [mo, d, y] = [MONTHS.indexOf(m[1].toLowerCase()), +m[2], m[3] ? +m[3] : null];
+    } else {
+      const t = Date.parse(s);
+      if (isNaN(t)) return null;
+      const x = new Date(t); x.setHours(0, 0, 0, 0); return x;
+    }
+    if (y != null && y < 100) y += y > (new Date().getFullYear() % 100) ? 1900 : 2000;
+    const out = new Date(y ?? 2000, mo, d);
+    if (isNaN(out)) return null;
+    out.noYear = y == null;
+    return out;
+  }
+  const daysBetween = (a, b) => Math.round((b - a) / DAY);
+  function daysSince(raw) { const d = parseDate(raw); return d && !d.noYear ? Math.max(0, daysBetween(d, today())) : null; }
+  function ago(days) {
+    if (days == null) return 'never logged';
+    if (days === 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 14) return `${days} days ago`;
+    if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+    if (days < 730) return `${Math.round(days / 30.4)} months ago`;
+    return `${Math.round(days / 365)} years ago`;
+  }
+  function every(days) {
+    if (days <= 1) return 'daily';
+    if (days < 14) return `every ${days} days`;
+    if (days < 60) return `every ${Math.round(days / 7)} weeks`;
+    if (days < 700) return `every ${Math.round(days / 30.4)} months`;
+    return `every ${Math.round(days / 365)} years`;
+  }
+  function inDays(n) { return n === 0 ? 'today' : n === 1 ? 'tomorrow' : n < 0 ? ago(-n) : `in ${n} days`; }
+  const fmtDate = d => d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+
+  function nextBirthday(raw) {
+    const b = parseDate(raw);
+    if (!b) return null;
+    const t = today();
+    let next = new Date(t.getFullYear(), b.getMonth(), b.getDate());
+    if (next < t) next = new Date(t.getFullYear() + 1, b.getMonth(), b.getDate());
+    const age = !b.noYear && b.getFullYear() > 1910 ? next.getFullYear() - b.getFullYear() : null;
+    return { date: next, days: daysBetween(t, next), age };
+  }
+
+  const addresses = f => Object.keys(f).filter(k => /address/.test(k) && !/allergy/.test(k)).map(k => String(f[k] || '').trim()).filter(Boolean);
+  function postalAddress(f) {
+    const opts = addresses(f);
+    return opts.find(a => /\d/.test(a)) || opts[0] || '';
+  }
+
+  /* ───────────── Rules & scoring ───────────── */
+  function tierRule(t) {
+    const r = (S.data && S.data.rules.tiers[t]) || {};
+    return {
+      contactGoal: r.contactGoal || DEFAULTS.contactGoal[t],
+      seeMultiplier: r.seeMultiplier || DEFAULTS.seeMultiplier[t],
+      label: r.label || ''
+    };
+  }
+  function proxRule(p) {
+    const r = (S.data && S.data.rules.proximity[p]) || {};
+    return { inviteGoal: r.inviteGoal || DEFAULTS.inviteGoal[p] || 60, geography: r.geography || '' };
+  }
+  const tierColor = t => t ? `var(--t${Math.min(t, 6)})` : 'var(--muted)';
+  const healthColor = h => h == null ? 'var(--muted)' : h >= 70 ? 'var(--good)' : h >= 40 ? 'var(--mid)' : 'var(--bad)';
+
+  // Which battery channel each logged event feeds.
+  const CHANNEL = { meet: 'meet', video: 'video', call: 'call', message: 'message', reached: 'message', invite: 'message', invited_me: 'message' };
+
+  // Catch-ups for one friend: the history log, plus the dates in the sheet (which cover the time before the log existed).
+  function channelEvents(f) {
+    const evs = ((S.logByName || {})[String(f.name).toLowerCase()] || []).filter(e => CHANNEL[e.type]).map(e => ({ ch: CHANNEL[e.type], date: e.date }));
+    const add = (raw, ch, clash) => {
+      const d = parseDate(raw);
+      if (d && !d.noYear && !evs.some(e => e.date === iso(d) && clash.includes(e.ch))) evs.push({ ch, date: iso(d) });
+    };
+    add(f.lastseenvideocalled, 'meet', ['meet']);
+    add(f.lastcalled, 'call', ['call', 'video']);
+    add(f.lastcontacted, 'message', ['meet', 'call', 'video', 'message']);
+    return evs;
+  }
+
+  // Each catch-up adds points that halve over time: in-person ones over the "see" goal,
+  // messages over the contact goal, calls and video in between.
+  function battery(evs, contactGoal, seeGoal, far) {
+    const mid = Math.sqrt(contactGoal * seeGoal);
+    const half = { meet: seeGoal, video: mid, call: mid, message: contactGoal };
+    const sum = { meet: 0, video: 0, call: 0, message: 0 };
+    const t = today();
+    evs.forEach(e => {
+      const age = Math.max(0, daysBetween(parseDate(e.date), t));
+      sum[e.ch] += BATTERY.points[e.ch] * Math.pow(0.5, age / half[e.ch]);
+    });
+    const caps = far ? BATTERY.capsFar : BATTERY.caps;
+    let remote = Math.min(caps.message, sum.message);
+    remote = Math.min(caps.call, remote + sum.call);
+    remote = Math.min(caps.video, remote + sum.video);
+    const inPerson = Math.min(100, sum.meet);
+    // Remote contact tops up the part of the battery that in-person time hasn't filled.
+    const topUp = remote * (1 - inPerson / 100);
+    return { inPerson, remote, topUp, remoteCap: caps.video, total: Math.min(100, inPerson + topUp), sum };
+  }
+
+  function compute(f) {
+    const n = parseInt(f.tier, 10);
+    const tier = n >= 1 ? Math.min(n, 6) : null;
+    const pn = parseInt(f.proximityscore, 10);
+    const sheetProx = pn >= 1 ? Math.min(pn, 6) : null;
+    // Distance follows wherever you're living now, when we know where both of you are.
+    const loc = friendPlace(f), base = currentBase();
+    const km = base && loc && !loc.missing ? distanceKm(base, loc) : null;
+    const proxAuto = km != null && S.prefs.autoDistance;
+    const prox = proxAuto ? distanceBand(km, base, loc) : sheetProx;
+    const tr = tier ? tierRule(tier) : null;
+    const pr = proxRule(prox || 3);
+    const contactGoal = tr ? tr.contactGoal : null;
+    const seeGoal = tr ? Math.min(MAX_SEE_GOAL, Math.max(1, Math.round(pr.inviteGoal * tr.seeMultiplier))) : null;
+
+    const dMsg = daysSince(f.lastcontacted), dSeen = daysSince(f.lastseenvideocalled), dCall = daysSince(f.lastcalled);
+    const far = !!prox && prox <= 2;
+    const dContact = minN(dMsg, dSeen, dCall);
+    const dSeenEff = dSeen;
+    const dLive = minN(dSeen, dCall); // last time you actually saw or spoke to them
+
+    const planDate = parseDate(f.nextplandate);
+    const planDays = planDate ? daysBetween(today(), planDate) : null;
+    const hasPlan = !!(String(f.nextplan || '').trim() || planDate);
+    const booked = hasPlan && (planDays == null || planDays >= 0);
+    const planPast = hasPlan && planDays != null && planDays < 0;
+
+    const bat = tier ? battery(channelEvents(f), contactGoal, seeGoal, far) : null;
+    const health = tier ? Math.round(Math.max(bat.total, booked ? PLAN_FLOOR : 0)) : null;
+    const dInvited = daysSince(f.lastinvited);
+    const recentlyInvited = dInvited != null && dInvited < INVITE_SNOOZE && !booked;
+
+    const contactRatio = tier ? Math.min(9, dContact == null ? 9 : dContact / contactGoal) : 0;
+    const seeRatio = tier ? Math.min(9, dSeenEff == null ? 9 : dSeenEff / seeGoal) : 0;
+    const rel = friendStats(f);
+    // Spend your energy where it's returned: flaky friends get nudged a bit less.
+    const weight = (tier ? 7 - tier : 0) * (rel.attempts >= RELIABILITY_MIN ? 0.5 + 0.5 * rel.reliability : 1);
+    const needsMessage = !!tier && contactRatio >= 1;
+    // Due a meet-up: not seen in person for the goal, and calls/video aren't keeping it topped up.
+    const needsBooking = !!tier && !booked && !recentlyInvited && seeRatio >= 1 && bat.total < 70;
+
+    f.$ = {
+      rel, tier, prox, sheetProx, proxAuto, km, loc, dInvited, recentlyInvited, contactRatio, seeRatio, tierLabel: tr ? tr.label : '', geography: prox ? proxRule(prox).geography : '',
+      contactGoal, seeGoal, far, bat, dMsg, dSeen, dCall, dContact, dSeenEff, dLive, health,
+      planDate, planDays, hasPlan, booked, planPast,
+      needsMessage, needsBooking,
+      priority: weight * Math.max(needsMessage ? contactRatio : 0, needsBooking ? seeRatio : 0, Math.max(contactRatio, seeRatio) * 0.1),
+      bday: nextBirthday(f.birthdaydate),
+      tags: splitTags(f.tags), places: splitTags(f.placetags),
+      hay: Object.keys(f).filter(k => k[0] !== '$' && k[0] !== '_').map(k => f[k]).join(' ').toLowerCase()
+    };
+    return f;
+  }
+
+  /* ───────────── Home bases ───────────── */
+  const currentBase = () => (S.prefs.bases || []).find(b => b.name === S.prefs.current && b.lat != null) || null;
+  function recomputeAll() { S.friends.forEach(compute); }
+  function savePrefs(changes, msg) {
+    const prev = S.prefs;
+    S.prefs = Object.assign({}, S.prefs, changes);
+    recomputeAll(); render(); renderSheet();
+    if (S.prefs.current) geocodeMissing();
+    return api('setPrefs', JSON.stringify(S.prefs)).then(() => msg && toast(msg))
+      .catch(err => { S.prefs = prev; recomputeAll(); render(); renderSheet(); toast('⚠️ ' + err.message); });
+  }
+  // Friends near a base (by distance) or with a place tag, as one list.
+  function placeMembers(key) {
+    const [kind, name] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
+    if (kind === 'base') {
+      const b = (S.prefs.bases || []).find(x => x.name === name);
+      return b ? S.friends.filter(f => f.$.loc && !f.$.loc.missing && distanceKm(b, f.$.loc) <= NEAR_KM) : [];
+    }
+    if (kind === 'tag') return S.friends.filter(f => f.$.places.some(t => t.toLowerCase() === name.toLowerCase()));
+    return S.friends.slice();
+  }
+  function placeKeys() {
+    const bases = (S.prefs.bases || []).map(b => ({ key: 'base:' + b.name, label: b.name, base: true, current: b.name === S.prefs.current }));
+    const baseNames = bases.map(b => b.label.toLowerCase());
+    const tags = allValues('placetags').filter(v => !baseNames.includes(v.label.toLowerCase())).map(v => ({ key: 'tag:' + v.label, label: v.label }));
+    return [...bases.sort((a, b) => b.current - a.current), ...tags];
+  }
+  // Who most needs a meet-up: closer tiers first, then how overdue.
+  const seeRank = (a, b) => (b.$.needsBooking - a.$.needsBooking) || ((7 - (b.$.tier || 7)) * b.$.seeRatio - (7 - (a.$.tier || 7)) * a.$.seeRatio);
+  function inviteCandidates(key, tag) {
+    return placeMembers(key)
+      .filter(f => f.$.tier && !f.$.booked && !f.$.recentlyInvited)
+      .filter(f => !tag || f.$.tags.some(t => t.toLowerCase() === tag.toLowerCase()))
+      .sort(seeRank);
+  }
+
+  /* ───────────── History, reliability & game ───────────── */
+  const XP = { message: 5, call: 10, video: 15, meet: 25, invite: 5, reached: 5, invited_me: 5, booked: 10, happened: 15, invite_declined: 2 };
+  const BONUS = { reconnect: 20, birthday: 10 };
+  const QUEST_XP = 30;
+  const WEEK_GOAL_XP = 40;      // a week keeps your streak alive at this much XP
+  const RELIABILITY_MIN = 3;    // invite/plan outcomes needed before reliability counts
+  const LEVELS = ['Hermit crab 🐚', 'Acquaintance 👋', 'Pal 🙂', 'Buddy 🤗', 'Social butterfly 🦋', 'Connector 🔗', 'Host with the most 🥂', 'Community pillar 🏛️', 'Friendship legend 🌟', 'Mayor of friendship 👑'];
+  const xpForLevel = n => 50 * n * (n - 1); // level 2 at 100 XP, 3 at 300, 4 at 600…
+  const distinct = ev => new Set(ev.map(e => e.name.toLowerCase())).size;
+  const QUESTS = [
+    { label: 'See 2 friends in person', goal: 2, count: ev => distinct(ev.filter(e => e.type === 'meet')) },
+    { label: 'Message or call 5 different friends', goal: 5, count: ev => distinct(ev.filter(e => ['message', 'call', 'video'].includes(e.type))) },
+    { label: 'Reconnect with someone you haven’t seen in 6+ months', goal: 1, count: ev => ev.filter(e => /reconnect/.test(e.note)).length },
+    { label: 'Call or video a friend who lives far away', goal: 1, count: ev => ev.filter(e => (e.type === 'call' || e.type === 'video') && /far/.test(e.note)).length },
+    { label: 'Invite 3 people to something', goal: 3, count: ev => ev.filter(e => e.type === 'invite').length },
+    { label: 'Put a plan in the diary', goal: 1, count: ev => ev.filter(e => e.type === 'booked').length },
+    { label: 'Catch up with 3 tier 1–2 friends', goal: 3, count: ev => distinct(ev.filter(e => /\bt[12]\b/.test(e.note) && ['message', 'call', 'video', 'meet'].includes(e.type))) }
+  ];
+  const countType = (ev, t) => ev.filter(e => e.type === t).length;
+  const BADGES = [
+    { e: '👣', name: 'First steps', desc: 'Log a catch-up', goal: 1, value: ev => ev.filter(e => XP[e.type]).length },
+    { e: '🦋', name: 'Social butterfly', desc: 'See friends 25 times', goal: 25, value: ev => countType(ev, 'meet') },
+    { e: '☎️', name: 'Phone a friend', desc: '10 calls or video chats', goal: 10, value: ev => countType(ev, 'call') + countType(ev, 'video') },
+    { e: '🎉', name: 'Party planner', desc: 'Invite 6+ in a day', goal: 6, value: ev => Math.max(0, ...Object.values(ev.filter(e => e.type === 'invite').reduce((m, e) => (m[e.date] = (m[e.date] || 0) + 1, m), {}))) },
+    { e: '🔁', name: 'Reconnector', desc: '5 long-lost catch-ups', goal: 5, value: ev => ev.filter(e => /reconnect/.test(e.note)).length },
+    { e: '🎂', name: 'Birthday hero', desc: '3 birthday messages', goal: 3, value: ev => ev.filter(e => /birthday/.test(e.note)).length },
+    { e: '📅', name: 'Diary keeper', desc: '10 plans that happened', goal: 10, value: ev => countType(ev, 'happened') },
+    { e: '🌍', name: 'Long distance', desc: '5 calls or video chats with far-away friends', goal: 5, value: ev => ev.filter(e => (e.type === 'call' || e.type === 'video') && /far/.test(e.note)).length },
+    { e: '🧲', name: 'Magnetic', desc: 'Friends got in touch or invited you 10 times', goal: 10, value: ev => countType(ev, 'reached') + countType(ev, 'invited_me') },
+    { e: '🔥', name: 'On a roll', desc: '4-week streak', goal: 4, value: (ev, g) => g.best },
+    { e: '🏆', name: 'Unstoppable', desc: '12-week streak', goal: 12, value: (ev, g) => g.best },
+    { e: '💯', name: 'Centurion', desc: '100 catch-ups logged', goal: 100, value: ev => ev.filter(e => ['message', 'call', 'video', 'meet'].includes(e.type)).length }
+  ];
+
+  function weekStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+  const weekKey = d => iso(weekStart(d));
+  function addWeeks(d, n) { const x = new Date(d); x.setDate(x.getDate() + 7 * n); return x; }
+  function questsFor(key) {
+    const i = Math.round(parseDate(key) / (7 * DAY));
+    return [0, 2, 4].map(o => QUESTS[(i + o) % QUESTS.length]);
+  }
+
+  function indexLog() {
+    S.usesReached = S.log.filter(e => e.type === 'reached').length >= 3;
+    S.logByName = {};
+    S.log.forEach(e => { const k = String(e.name).toLowerCase(); (S.logByName[k] = S.logByName[k] || []).push(e); });
+    Object.values(S.logByName).forEach(l => l.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  }
+
+  // How dependable someone is, from what's happened to your invites and plans.
+  function friendStats(f) {
+    const evs = (S.logByName || {})[String(f.name).toLowerCase()] || [];
+    const since = n => iso(new Date(today() - n * DAY));
+    const c = (type, from) => evs.filter(e => e.type === type && (!from || e.date >= from)).length;
+    const theyPlanned = c('invited_me');
+    const kept = c('happened'), yes = c('invite_yes'), cancelled = c('they_cancelled'), ghosted = c('invite_noreply'), declined = c('invite_declined');
+    const good = kept + yes + theyPlanned, bad = cancelled + ghosted + declined * 0.5;
+    const d90 = since(90);
+    // Messages and invites can go unanswered; calls and meet-ups can't, so they show it's two-way.
+    const mine90 = c('message', d90) + c('invite', d90), theirs90 = c('reached', d90) + c('invited_me', d90), meets90 = c('meet', d90) + c('call', d90) + c('video', d90);
+    // An invite is waiting for an answer until something else happens with them (within 30 days).
+    let pendingInvite = null;
+    for (let i = evs.length - 1; i >= 0; i--) {
+      const e = evs[i];
+      if (['invite_yes', 'invite_declined', 'invite_noreply', 'booked', 'meet', 'video', 'happened'].includes(e.type)) break;
+      if (e.type === 'invite') { if (e.date >= since(30)) pendingInvite = e; break; }
+    }
+    return {
+      kept, yes, theyPlanned, cancelled, ghosted, declined, invites: c('invite', since(365)),
+      attempts: kept + yes + theyPlanned + cancelled + ghosted + declined,
+      reliability: (good + 1) / (good + bad + 2),
+      mine90, theirs90, meets90, pendingInvite,
+      recentTierCheck: evs.some(e => /^tier_/.test(e.type) && e.date >= d90)
+    };
+  }
+  function reliabilityLabel(r) {
+    if (r.attempts < RELIABILITY_MIN) return 'Not enough history yet';
+    return r.reliability >= 0.8 ? 'Rock solid 🪨' : r.reliability >= 0.6 ? 'Reliable 👍' : r.reliability >= 0.4 ? 'Hit and miss 🎲' : 'Hard to pin down 🫥';
+  }
+
+  // Suggests moving someone down a tier when it's all one-way, or up when they're brilliant.
+  function tierSuggestion(f) {
+    const r = f.$.rel, t = f.$.tier;
+    if (!t || r.recentTierCheck) return null;
+    const why = [];
+    if (r.invites) why.push(`invited ${r.invites}×`);
+    if (r.kept + r.yes) why.push(`${r.kept + r.yes} said yes or showed up`);
+    if (r.theyPlanned) why.push(`they organised ${r.theyPlanned}×`);
+    if (r.cancelled) why.push(`${r.cancelled} cancelled`);
+    if (r.ghosted) why.push(`${r.ghosted} no reply`);
+    const flaky = r.attempts >= RELIABILITY_MIN && r.reliability < 0.4;
+    // Only judge "one-way" once you're logging when friends get in touch, or everyone would look one-way.
+    const oneWay = S.usesReached && r.mine90 >= 5 && r.theirs90 === 0 && r.meets90 === 0;
+    if ((flaky || oneWay) && t < 6) {
+      if (oneWay) why.push(`you reached out ${r.mine90}× in 90 days, they didn’t once`);
+      return { to: t + 1, dir: 'down', why: why.join(' · ') };
+    }
+    if (t > 1 && r.attempts >= RELIABILITY_MIN && r.reliability >= 0.8 && r.theirs90 >= 2) {
+      why.push(`they got in touch first ${r.theirs90}× lately`);
+      return { to: t - 1, dir: 'up', why: why.join(' · ') };
+    }
+    return null;
+  }
+
+  function gameStats() {
+    const byWeek = {};
+    S.log.forEach(e => { const d = parseDate(e.date); if (d) (byWeek[weekKey(d)] = byWeek[weekKey(d)] || []).push(e); });
+    const weekXP = {};
+    let xp = 0;
+    Object.entries(byWeek).forEach(([k, ev]) => {
+      const done = questsFor(k).filter(q => q.count(ev) >= q.goal).length;
+      weekXP[k] = ev.reduce((sum, e) => sum + (e.xp || 0), 0) + done * QUEST_XP;
+      xp += weekXP[k];
+    });
+    const thisWeek = weekKey(today());
+    // The current week only joins the streak once it's earned enough.
+    let streak = 0, d = weekStart(today());
+    if ((weekXP[thisWeek] || 0) < WEEK_GOAL_XP) d = addWeeks(d, -1);
+    while ((weekXP[iso(d)] || 0) >= WEEK_GOAL_XP) { streak++; d = addWeeks(d, -1); }
+    let best = 0, run = 0;
+    const keys = Object.keys(weekXP).sort();
+    if (keys.length) for (let w = parseDate(keys[0]); iso(w) <= thisWeek; w = addWeeks(w, 1)) {
+      run = (weekXP[iso(w)] || 0) >= WEEK_GOAL_XP ? run + 1 : 0;
+      best = Math.max(best, run);
+    }
+    let level = 1;
+    while (level < LEVELS.length && xp >= xpForLevel(level + 1)) level++;
+    const ev = byWeek[thisWeek] || [];
+    return { xp, weekXP, thisWeek, streak, best, level, quests: questsFor(thisWeek).map(q => ({ ...q, n: Math.min(q.goal, q.count(ev)) })) };
+  }
+
+  // Your overall friendship score: everyone's health, closer tiers counting for more.
+  function overallScore() {
+    let w = 0, sum = 0, thriving = 0, tracked = 0;
+    S.friends.forEach(f => {
+      if (f.$.health == null) return;
+      const k = 7 - f.$.tier;
+      w += k; sum += k * f.$.health; tracked++;
+      if (f.$.health >= 70) thriving++;
+    });
+    return { score: w ? Math.round(sum / w) : 0, thriving, tracked };
+  }
+
+  const gameOn = () => S.prefs.game !== false;
+  const xpText = n => gameOn() && n ? ` · +${n} XP` : '';
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  // Records things that happened (for reliability, XP and streaks). Returns the events, for undo.
+  function addEvents(list) {
+    const before = gameStats().level;
+    const evs = list.map(e => ({ id: newId(), date: e.date || iso(today()), name: e.name, type: e.type, xp: e.xp ?? (XP[e.type] || 0), note: e.note || '' }));
+    S.log.push(...evs);
+    afterLogChange(evs);
+    write('logEvents', JSON.stringify(evs)).catch(err => toast('⚠️ History not saved: ' + err.message));
+    const after = gameStats().level;
+    if (after > before && gameOn()) setTimeout(() => { confetti(); toast(`⬆️ Level ${after}: ${LEVELS[after - 1]}!`); }, 700);
+    return evs;
+  }
+  function removeEventsLocal(evs) {
+    const ids = evs.map(e => e.id);
+    S.log = S.log.filter(e => !ids.includes(e.id));
+    afterLogChange(evs);
+    write('removeEvents', JSON.stringify(ids)).catch(() => {});
+  }
+  function afterLogChange(evs) {
+    indexLog();
+    const names = new Set(evs.map(e => String(e.name).toLowerCase()));
+    S.friends.forEach(f => { if (names.has(String(f.name).toLowerCase())) compute(f); });
+    render(); rerenderSheet(); scheduleWeekSave();
+  }
+
+  let weekTimer = null;
+  function scheduleWeekSave() {
+    clearTimeout(weekTimer);
+    weekTimer = setTimeout(() => {
+      if (!S.data) return;
+      const o = overallScore(), g = gameStats();
+      if (!o.tracked) return;
+      const snap = { week: g.thisWeek, score: o.score, thriving: o.thriving, tracked: o.tracked, xp: g.weekXP[g.thisWeek] || 0 };
+      const old = S.weeks.find(w => w.week === snap.week);
+      if (old && ['score', 'thriving', 'tracked', 'xp'].every(k => old[k] === snap[k])) return;
+      if (old) Object.assign(old, snap); else S.weeks.push(snap);
+      write('saveWeek', JSON.stringify(snap)).catch(() => {});
+    }, 2500);
+  }
+
+  /* ───────────── Easy logging ───────────── */
+  const TYPE_ORDER = ['meet', 'video', 'call', 'message', 'reached'];
+  const TYPE_EMOJI = { meet: '🤝', video: '🎥', call: '📞', message: '💬', reached: '📥' };
+  const TYPE_WORDS = [
+    ['reached', /\b(heard from|(texted|messaged|whatsapped|emailed|dmed|dm'd) me|got in touch)\b/],
+    ['video', /\b(video|videoed|facetime|facetimed|zoom|zoomed|teams|skype|skyped|vc)\b/],
+    ['call', /\b(call|called|phone|phoned|rang|ring)\b/],
+    ['message', /\b(text|texted|message|messaged|whatsapp|whatsapped|dm|dmed|emailed|voice note|wrote to)\b/],
+    ['meet', /\b(saw|see|seen|met|meet|dinner|lunch|brunch|breakfast|drinks|drink|pub|coffee|walk|hung out|hang|visited|visit|party|wedding|cinema|gig|climbing|run|stayed|bbq|picnic|played|game)\b/]
+  ];
+  const WEEKDAYS = [/\b(sun|sunday)\b/, /\b(mon|monday)\b/, /\b(tue|tues|tuesday)\b/, /\b(wed|weds|wednesday)\b/, /\b(thu|thur|thurs|thursday)\b/, /\b(fri|friday)\b/, /\b(sat|saturday|weekend)\b/];
+  function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function clauseDate(c) {
+    const t = today();
+    if (/\b(today|tonight|this morning|this afternoon|this evening)\b/.test(c)) return iso(t);
+    if (/\b(yesterday|last night)\b/.test(c)) return iso(addDays(t, -1));
+    let m = c.match(/\b(\d+) days? ago\b/);
+    if (m) return iso(addDays(t, -m[1]));
+    m = c.match(/\b(\d{1,2})[\/.](\d{1,2})\b/);
+    if (m) { let d = new Date(t.getFullYear(), m[2] - 1, +m[1]); if (d > t) d = new Date(t.getFullYear() - 1, m[2] - 1, +m[1]); return iso(d); }
+    for (let wd = 0; wd < 7; wd++) if (WEEKDAYS[wd].test(c)) { const back = (t.getDay() - wd + 7) % 7; return iso(addDays(t, -back)); }
+    return null;
+  }
+  // "dinner with Sam and Jo on Saturday, called Mum, video with Chen yesterday"
+  function parseQuickLog(text) {
+    const people = S.friends.map(f => {
+      const full = f.name.toLowerCase().trim();
+      return { f, full, first: full.split(/\s+/)[0] };
+    });
+    const firstCount = {};
+    people.forEach(p => { firstCount[p.first] = (firstCount[p.first] || 0) + 1; });
+    const out = [];
+    let type = null, date = null;
+    text.toLowerCase().split(/[,;\n]+|\.\s+|\bthen\b/).forEach(raw => {
+      let c = ' ' + raw + ' ';
+      const t = TYPE_WORDS.find(([, re]) => re.test(c));
+      if (t) type = t[0];
+      date = clauseDate(c) || date;
+      // Full names first, then first names; ambiguous first names keep every candidate.
+      const found = [];
+      people.slice().sort((a, b) => b.full.length - a.full.length).forEach(p => {
+        if (p.full.includes(' ') && wordIn(c, p.full)) { found.push([p.f]); c = c.replace(p.full, ' '); }
+      });
+      Object.keys(firstCount).filter(fn => fn.length >= 2 && wordIn(c, fn)).forEach(fn => {
+        found.push(people.filter(p => p.first === fn).map(p => p.f).sort((a, b) => (a.$.tier || 9) - (b.$.tier || 9)));
+        c = c.replace(new RegExp('(^|[^a-z])' + reEsc(fn) + '(?=[^a-z]|$)'), '$1 ');
+      });
+      found.forEach(cands => out.push({ cands, pick: 0, type, date: date || iso(today()) }));
+    });
+    // A later clause can set the type for names that came before it ("Sam and Jo, dinner").
+    for (let i = out.length - 1; i >= 0; i--) if (!out[i].type) out[i].type = (out[i + 1] && out[i + 1].type) || 'meet';
+    const seen = new Set();
+    return out.filter(e => { const k = e.cands[0]._row + e.type + e.date; if (seen.has(k)) return false; seen.add(k); return true; });
+  }
+  const reEsc = w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const wordIn = (text, w) => new RegExp('(^|[^a-z])' + reEsc(w) + '([^a-z]|$)').test(text);
+
+  function dayLabel(day) {
+    const n = daysBetween(parseDate(day), today());
+    return n === 0 ? 'today' : n === 1 ? 'yesterday' : n < 7 ? parseDate(day).toLocaleDateString('en-GB', { weekday: 'short' }) : fmtDate(parseDate(day));
+  }
+
+  // Logs several catch-ups at once with a single undo.
+  function logMany(entries, label) {
+    if (!entries.length) return;
+    vibrate();
+    if (entries.some(e => e.type === 'meet')) confetti();
+    Promise.all(entries.map(e => applyLog(e.f, e.type, e.date, { note: e.note || '', extra: e.extra || [] }))).then(items => {
+      const xp = items.reduce((sum, i) => sum + i.evs.reduce((a, e) => a + e.xp, 0), 0);
+      toast(`${label || '✅ Logged'} ${plural(items.length, 'catch-up')}${xpText(xp)}`, { undo: () => undoLogs(items) });
+    }).catch(() => {});
+  }
+
+  // Plans whose date has passed are assumed to have happened. You can say otherwise from Today.
+  function autoConfirmPlans() {
+    if (S.prefs.autoConfirm === false || S.autoConfirmDone) return;
+    S.autoConfirmDone = true;
+    const due = S.friends.filter(f => f.$.planPast && f.$.planDays <= -AUTO_CONFIRM_DAYS);
+    if (!due.length) return;
+    logMany(due.map(f => {
+      const video = /video|call|zoom|facetime|teams/i.test(f.nextplan || '');
+      const day = iso(f.$.planDate);
+      // Remember the sheet's previous dates so "it didn't happen" can put them back.
+      const prev = raw => { const d = parseDate(raw); return d && !d.noYear ? iso(d) : '-'; };
+      return { f, type: video ? 'video' : 'meet', date: day, note: 'auto',
+        extra: [{ name: f.name, type: 'happened', date: day, note: `auto ps:${prev(f.lastseenvideocalled)} pc:${prev(f.lastcalled)}` }] };
+    }), '🤖 Assumed your plans happened:');
+  }
+  // Auto-logged plans from the last week, so you can correct any that didn't happen.
+  function autoLogged() {
+    let ack = [];
+    try { ack = JSON.parse(localStorage.getItem('socialos.ack') || '[]'); } catch (e) {}
+    const since = iso(addDays(today(), -7));
+    return S.log.filter(e => e.type === 'happened' && /auto/.test(e.note) && e.date >= since && !ack.includes(e.id))
+      .map(e => ({ e, f: S.friends.find(f => f.name.toLowerCase() === e.name.toLowerCase()) })).filter(x => x.f);
+  }
+  function ackAuto(id) {
+    try { const a = JSON.parse(localStorage.getItem('socialos.ack') || '[]'); a.push(id); localStorage.setItem('socialos.ack', JSON.stringify(a.slice(-200))); } catch (e) {}
+  }
+  // Undo an auto-logged plan: remove that day's events and record who cancelled.
+  function didntHappen(f, happenedEvent, who) {
+    const day = happenedEvent.date;
+    const evs = S.log.filter(e => e.name.toLowerCase() === f.name.toLowerCase() && e.date === day && /auto/.test(e.note));
+    removeEventsLocal(evs);
+    ackAuto(happenedEvent.id);
+    // Put the sheet's dates back to what they were before the plan was assumed.
+    const was = key => { const m = happenedEvent.note.match(new RegExp(key + ':(\\S+)')); return m && m[1] !== '-' ? m[1] : ''; };
+    const changes = {};
+    if (iso(parseDate(f.lastseenvideocalled) || today()) === day) changes.lastseenvideocalled = was('ps');
+    if (iso(parseDate(f.lastcalled) || today()) === day) changes.lastcalled = was('pc');
+    if (Object.keys(changes).length) save(f, changes).catch(() => {});
+    addEvents([{ name: f.name, type: who === 'them' ? 'they_cancelled' : 'i_cancelled', date: day }]);
+    toast(who === 'them' ? `Noted: ${f.name.split(' ')[0]} cancelled` : 'Removed');
+  }
+
+  /* ───────────── Talking to the sheet ───────────── */
+  function api(name, ...args) {
+    return new Promise((resolve, reject) => {
+      if (!(window.google && google.script && google.script.run)) return reject(new Error('Open this through your Apps Script web-app link.'));
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(e => reject(new Error((e && e.message) || String(e))))[name](...args);
+    });
+  }
+  // Writes go one at a time so they can't trip over each other.
+  function write(name, ...args) {
+    const p = S.chain.then(() => api(name, ...args)).then(res => {
+      const r = typeof res === 'string' ? JSON.parse(res) : res;
+      if (r && r.error) throw new Error(r.error);
+      return r;
+    });
+    S.chain = p.catch(() => {});
+    return p;
+  }
+
+  function ingest(d) {
+    S.data = d;
+    S.cols = {};
+    d.columns.forEach(c => { S.cols[c.key] = c; });
+    S.geo = Object.assign({}, S.geo, d.geo || {});
+    S.prefs = Object.assign({ bases: [], current: '', autoDistance: true, autoConfirm: true }, d.prefs || {});
+    S.log = (d.log || []).map(r => Array.isArray(r) ? { id: r[0], date: r[1], name: r[2], type: r[3], xp: Number(r[4]) || 0, note: r[5] || '' } : r);
+    S.weeks = d.weeks || [];
+    indexLog();
+    S.friends = d.friends.map(compute);
+    S.byRow = {};
+    S.friends.forEach(f => { S.byRow[f._row] = f; });
+  }
+
+  function refresh() {
+    $('#syncBtn').classList.add('spinning');
+    return api('getData').then(json => {
+      const d = JSON.parse(json);
+      if (d.error) throw new Error(d.error);
+      const open = S.sheet && S.sheet.row && S.byRow[S.sheet.row] && S.byRow[S.sheet.row].name;
+      ingest(d);
+      window.__loaded = true;
+      try { localStorage.setItem(CACHE_KEY, json); } catch (e) {}
+      if (open) { const f = S.friends.find(x => x.name === open); if (f) S.sheet.row = f._row; }
+      render();
+      scheduleWeekSave();
+      autoConfirmPlans();
+      if (S.sheet && !(document.activeElement && $('#sheetPanel').contains(document.activeElement))) renderSheet();
+      if (S.prefs.current) geocodeMissing();
+    }).catch(err => {
+      if (S.data) toast('⚠️ ' + err.message);
+      else showLoadError(err.message);
+    }).finally(() => $('#syncBtn').classList.remove('spinning'));
+  }
+
+  // Updates the screen straight away, then saves. Resolves with the old values (for undo).
+  function save(f, changes, opts = {}) {
+    const prev = {};
+    Object.keys(changes).forEach(k => { prev[k] = f[k] ?? ''; });
+    const name = prev.name !== undefined ? prev.name : f.name;
+    Object.assign(f, changes);
+    compute(f);
+    render(); if (!opts.quiet) rerenderSheet();
+    return write('updateFields', f._row, name, JSON.stringify(changes)).then(r => {
+      if (r.row) f._row = r.row;
+      if (r.skipped && r.skipped.length) toast('🔒 Not saved, these are formula columns: ' + r.skipped.join(', '));
+      return prev;
+    }).catch(err => {
+      Object.assign(f, prev); compute(f); render(); rerenderSheet();
+      toast('⚠️ Couldn’t save: ' + err.message);
+      throw err;
+    });
+  }
+
+  const LOGS = {
+    video: { field: 'lastcalled', emoji: '🎥', verb: 'Video-called' },
+    reached: { field: 'lastcontacted', emoji: '📥', verb: 'Heard from' },
+    invite: { field: 'lastinvited', emoji: '💌', verb: 'Invited' },
+    message: { field: 'lastcontacted', emoji: '💬', verb: 'Messaged' },
+    call: { field: 'lastcalled', emoji: '📞', verb: 'Called' },
+    meet: { field: 'lastseenvideocalled', emoji: '🤝', verb: 'Saw' }
+  };
+  const notAfter = (raw, day) => { const d = parseDate(raw); return !d || d.noYear || iso(d) <= day; };
+
+  // Updates the sheet's dates and records the event. Older dates still go in the history (they count
+  // towards the battery) without moving the sheet's "last" dates backwards.
+  function applyLog(f, type, day, { extra = [], note = '' } = {}) {
+    const L = LOGS[type], was = f.$;
+    const changes = {};
+    if (notAfter(f[L.field], day)) changes[L.field] = day;
+    if (type !== 'message' && notAfter(f.lastcontacted, day)) changes.lastcontacted = day;
+    if ((type === 'meet' || type === 'video') && was.hasPlan && (!was.planDate || iso(was.planDate) <= day)) { changes.nextplan = ''; changes.nextplandate = ''; }
+    const notes = was.tier ? ['t' + was.tier] : [];
+    if (note) notes.push(note);
+    let xp = XP[type] || 0;
+    const live = ['meet', 'call', 'video'].includes(type);
+    if (live && was.dLive != null && was.dLive >= 180 && notAfter(f[L.field], day)) { notes.push('reconnect'); xp += BONUS.reconnect; }
+    if (type !== 'invite' && was.bday && was.bday.days === 0 && day === iso(today())) { notes.push('birthday'); xp += BONUS.birthday; }
+    if ((type === 'call' || type === 'video') && was.far) notes.push('far');
+    const events = [{ name: f.name, type, date: day, xp, note: notes.join(' ') }, ...extra];
+    if (live && was.rel.pendingInvite) events.push({ name: f.name, type: 'invite_yes', date: day });
+    const saved = Object.keys(changes).length ? save(f, changes) : Promise.resolve({});
+    return saved.then(prev => ({ f, prev, evs: addEvents(events) }));
+  }
+  function undoLogs(items) {
+    items.forEach(i => { if (Object.keys(i.prev).length) save(i.f, i.prev).catch(() => {}); removeEventsLocal(i.evs); });
+  }
+
+  function logInteraction(f, type, when, extra = []) {
+    const day = when || iso(today());
+    const L = LOGS[type];
+    vibrate();
+    const before = f.$.health;
+    if (type === 'meet') confetti();
+    applyLog(f, type, day, { extra }).then(item => {
+      const gained = item.evs.reduce((sum, e) => sum + e.xp, 0);
+      const delta = before != null && f.$.health != null && f.$.health !== before ? ` · health ${before} → ${f.$.health}` : '';
+      toast(`${L.emoji} ${L.verb} ${f.name.split(' ')[0]}${delta}${xpText(gained)}`, { undo: () => undoLogs([item]) });
+    }).catch(() => {});
+  }
+
+
+
+  /* ───────────── Rendering bits ───────────── */
+  function hueOf(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+  function initials(name) { return String(name).trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase(); }
+  function avatar(f, size = '') {
+    const bg = `hsl(${hueOf(f.name)} 70% 58%)`;
+    const img = f.photo ? `<img src="${esc(f.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
+    return `<div class="avatar ${size}" style="background:${bg}">${esc(initials(f.name))}${img}</div>`;
+  }
+  function ring(h, size = 48) {
+    const r = size / 2 - 4, c = 2 * Math.PI * r, pct = h == null ? 0 : h / 100;
+    return `<div class="ring" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}">
+      <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="6"/>
+      <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${healthColor(h)}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${c * pct} ${c}"/>
+      </svg><b style="color:${healthColor(h)}">${h == null ? '–' : h}</b></div>`;
+  }
+  function tierBadge(f) {
+    const t = f.$.tier;
+    return t ? `<span class="tier-dot" style="background:${tierColor(t)}"></span>Tier ${t}${f.$.tierLabel ? ' · ' + esc(f.$.tierLabel) : ''}` : '<span class="tier-dot" style="background:var(--muted)"></span>No tier';
+  }
+
+  function reasons(f) {
+    const $f = f.$, out = [];
+    if ($f.planPast) out.push(`<span class="reason warn">❓ Did “${esc(f.nextplan || 'your plan')}” happen?</span>`);
+    else if ($f.booked) out.push(`<span class="reason ok">📅 ${esc(f.nextplan || 'Plan')}${$f.planDate ? ' · ' + fmtDate($f.planDate) : ''}</span>`);
+    if ($f.rel.attempts >= RELIABILITY_MIN && $f.rel.reliability < 0.4) out.push(`<span class="reason">🫥 Hard to pin down</span>`);
+    if ($f.recentlyInvited) out.push(`<span class="reason ok">💌 Invited ${ago($f.dInvited)}</span>`);
+    if ($f.needsMessage) out.push(`<span class="reason warn">💬 ${$f.dContact == null ? 'never logged' : $f.dContact + 'd since contact'} · goal ${$f.contactGoal}d</span>`);
+    if ($f.needsBooking) out.push(`<span class="reason warn">🤝 Not seen ${$f.dSeen == null ? 'yet' : 'in ' + ago($f.dSeen).replace(' ago', '')}</span>`);
+    if ($f.bday && $f.bday.days <= 14) out.push(`<span class="reason bday">🎂 ${$f.bday.days === 0 ? 'Birthday today!' : 'Birthday ' + inDays($f.bday.days)}</span>`);
+    if (S.here && f.$.dist != null) out.push(`<span class="reason">📍 ${f.$.dist < 1 ? '<1' : Math.round(f.$.dist)} km away</span>`);
+    return out.length ? `<div class="reasons">${out.join('')}</div>` : '';
+  }
+
+  function card(f) {
+    const place = f.$.places[0] || f.$.geography;
+    return `<article class="card" data-open="${f._row}">
+      <div class="card-top">
+        ${avatar(f)}
+        <div class="grow">
+          <div class="name">${esc(f.name)}</div>
+          <div class="sub">${tierBadge(f)}${place ? ' · ' + esc(place) : ''}</div>
+        </div>
+        ${ring(f.$.health)}
+      </div>
+      ${reasons(f)}
+      <div class="actions" style="grid-template-columns:repeat(5,1fr)">
+        <button class="act" data-act="log" data-type="message" data-row="${f._row}"><span class="e">💬</span>Msg</button>
+        <button class="act" data-act="log" data-type="call" data-row="${f._row}"><span class="e">📞</span>Call</button>
+        <button class="act" data-act="log" data-type="video" data-row="${f._row}"><span class="e">🎥</span>Video</button>
+        <button class="act" data-act="log" data-type="meet" data-row="${f._row}"><span class="e">🤝</span>Saw</button>
+        <button class="act ${f.$.booked ? 'on' : ''}" data-act="book" data-row="${f._row}"><span class="e">📅</span>Plan</button>
+      </div>
+    </article>`;
+  }
+
+  function emptyState(emoji, title, text) {
+    return `<div class="empty"><div class="big">${emoji}</div><h3>${title}</h3><div>${text}</div></div>`;
+  }
+
+  /* ───────────── Views ───────────── */
+  function render() {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === (S.tab === 'map' ? 'places' : S.tab)));
+    $('#mapwrap').hidden = S.tab !== 'map';
+    $('#view').hidden = S.tab === 'map';
+    document.querySelector('.fab').hidden = S.tab === 'map';
+    if (!S.data) return;
+    const due = S.friends.filter(f => f.$.needsMessage || f.$.needsBooking || f.$.planPast).length;
+    $('#todayBadge').hidden = !due;
+    $('#todayBadge').textContent = due > 99 ? '99+' : due;
+
+    // Keep the cursor where it was if someone's typing in the search box.
+    const active = document.activeElement, id = active && active.id, pos = active && active.selectionStart;
+    if (S.tab === 'today') $('#view').innerHTML = viewToday();
+    else if (S.tab === 'friends') $('#view').innerHTML = viewFriends();
+    else if (S.tab === 'dates') $('#view').innerHTML = viewDates();
+    else if (S.tab === 'places') $('#view').innerHTML = viewPlaces();
+    else if (S.tab === 'map') renderMap();
+    if (id && $('#' + id) && $('#' + id) !== active) { const el = $('#' + id); el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} }
+  }
+
+  function greeting() {
+    const h = new Date().getHours();
+    return h < 12 ? 'Good morning ☀️' : h < 18 ? 'Good afternoon 🌤️' : 'Good evening 🌙';
+  }
+
+  function scoreSeries(n) {
+    const o = overallScore(), thisWeek = weekKey(today());
+    const out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const key = iso(addWeeks(weekStart(today()), -i));
+      const snap = S.weeks.find(w => w.week === key);
+      out.push({ key, score: key === thisWeek ? o.score : snap ? snap.score : null, now: key === thisWeek });
+    }
+    return out;
+  }
+  function lastWeekScore() {
+    const prev = S.weeks.filter(w => w.week < weekKey(today())).sort((a, b) => a.week < b.week ? -1 : 1).pop();
+    return prev ? prev.score : null;
+  }
+  function deltaChip(score) {
+    const last = lastWeekScore();
+    if (last == null) return `<span class="delta">first week, check back Monday</span>`;
+    const d = score - last;
+    return `<span class="delta ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d > 0 ? '▲' : d < 0 ? '▼' : '●'} ${Math.abs(d)} vs last week</span>`;
+  }
+  const roundTop = (x, y, w, h, r = 4) => { r = Math.min(r, w / 2, h); return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`; };
+
+  // Weekly score bars, one hue, rounded tops on the baseline, hover or tap for the value.
+  function weekChart(weeks, { width = 340, height = 140, labels = true } = {}) {
+    const padB = labels ? 20 : 2, plotH = height - padB - 6, n = weeks.length;
+    const slot = width / n, bw = Math.max(4, Math.min(22, slot - 6));
+    const bars = weeks.map((w, i) => {
+      const x = i * slot + (slot - bw) / 2;
+      const d = parseDate(w.key);
+      const tip = `Week of ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}: ${w.score == null ? 'no score saved' : w.score}${w.now ? ' (so far)' : ''}`;
+      const h = w.score == null ? 0 : Math.max(2, (w.score / 100) * plotH);
+      const mark = w.score == null
+        ? `<rect x="${x}" y="${6 + plotH - 2}" width="${bw}" height="2" rx="1" fill="var(--border)"/>`
+        : `<path d="${roundTop(x, 6 + plotH - h, bw, h)}" fill="var(--accent)" opacity="${w.now ? 1 : 0.55}"/>`;
+      const label = labels && (i % 2 === (n - 1) % 2) ? `<text x="${x + bw / 2}" y="${height - 5}" text-anchor="middle" font-size="10" fill="var(--muted)" font-weight="700">${w.now ? 'now' : d.getDate() + '/' + (d.getMonth() + 1)}</text>` : '';
+      return `<g class="bar-hit" data-tip="${esc(tip)}" tabindex="0"><title>${esc(tip)}</title><rect class="bg" x="${i * slot}" y="0" width="${slot}" height="${6 + plotH}" fill="transparent" rx="6"/>${mark}${label}</g>`;
+    }).join('');
+    const grid = labels ? `<line x1="0" x2="${width}" y1="${6 + plotH * 0.3}" y2="${6 + plotH * 0.3}" stroke="var(--border)" stroke-dasharray="3 4"/>
+      <text x="${width}" y="${6 + plotH * 0.3 - 4}" text-anchor="end" font-size="10" fill="var(--muted)">70 thriving</text>` : '';
+    return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="Friendship score by week">${grid}
+      <line x1="0" x2="${width}" y1="${6 + plotH}" y2="${6 + plotH}" stroke="var(--border)"/>${bars}</svg>`;
+  }
+
+
+
+  function sheetProgress() {
+    const o = overallScore(), g = gameStats();
+    const lo = xpForLevel(g.level), hi = xpForLevel(g.level + 1);
+    const ranked = S.friends.filter(f => f.$.tier && f.$.rel.attempts >= RELIABILITY_MIN).sort((a, b) => b.$.rel.reliability - a.$.rel.reliability);
+    const relRow = f => `<div class="list-row" data-open="${f._row}">${avatar(f, 'sm')}<div class="grow"><div class="name" style="font-size:15px">${esc(f.name)}</div>
+      <div class="sub">${reliabilityLabel(f.$.rel)} · ${f.$.rel.kept + f.$.rel.yes} yes, ${f.$.rel.cancelled + f.$.rel.ghosted} flaked</div></div><b>${Math.round(f.$.rel.reliability * 100)}%</b></div>`;
+    return `<div class="sheet-head"><div style="font-size:40px">🏆</div><div class="grow"><h2>Your progress</h2><div class="sub">Level ${g.level} · ${LEVELS[g.level - 1]}</div></div></div>
+      <div class="box"><div class="eyebrow">Friendship score by week</div>
+        <div class="big-num" style="margin:4px 0 8px;color:${healthColor(o.score)}">${o.score}${deltaChip(o.score)}</div>
+        ${weekChart(scoreSeries(12))}
+        <div class="chart-tip" id="chartTip">Tap a bar to see the week</div>
+        <p class="small muted" style="margin:8px 0 0">Everyone’s health averaged, with closer tiers counting more. ${o.thriving} of ${o.tracked} friendships are thriving. A score is saved for each week you open the app.</p></div>
+      ${gameOn() ? `<div class="box"><div class="row"><div class="grow"><div class="eyebrow">Level ${g.level}</div><b>${LEVELS[g.level - 1]}</b></div><b>${g.xp} XP</b></div>
+        <div class="xpbar" style="height:9px;margin-top:8px"><i style="width:${g.level >= LEVELS.length ? 100 : Math.round(100 * (g.xp - lo) / (hi - lo))}%"></i></div>
+        <div class="small muted" style="margin-top:6px">${g.level < LEVELS.length ? `${hi - g.xp} XP until ${LEVELS[g.level]}` : 'Top level!'} · 🔥 streak ${g.streak} (best ${g.best})</div></div>
+      <div class="box"><h3>🎯 This week’s quests</h3>${g.quests.map(q => `<div class="quest ${q.n >= q.goal ? 'done' : ''}"><span class="tick">${q.n >= q.goal ? '✓' : ''}</span><span class="q grow">${q.label}</span><span class="muted">${q.n}/${q.goal}</span></div>`).join('')}
+        <div class="small muted" style="margin-top:6px">New quests every Monday. A week keeps your streak going at ${WEEK_GOAL_XP} XP.</div></div>
+      <div class="box"><h3>🏅 Badges</h3><div class="badges">${BADGES.map(b => {
+        const val = b.value(S.log, g), got = val >= b.goal;
+        return `<div class="badge-tile ${got ? '' : 'locked'}"><span class="e">${b.e}</span>${b.name}<div class="small muted" style="font-weight:600">${got ? b.desc : `${Math.min(val, b.goal)}/${b.goal} · ${b.desc}`}</div></div>`;
+      }).join('')}</div></div>` : ''}
+      ${ranked.length ? `<div class="box"><h3>🪨 Most reliable</h3>${ranked.slice(0, 5).map(relRow).join('')}</div>
+        ${ranked.length > 5 || ranked.some(f => f.$.rel.reliability < 0.5) ? `<div class="box"><h3>🫥 Hard to pin down</h3>${ranked.slice().reverse().filter(f => f.$.rel.reliability < 0.6).slice(0, 5).map(relRow).join('') || '<p class="small muted">Nobody, lovely.</p>'}</div>` : ''}`
+        : `<div class="box"><h3>🪨 Reliability</h3><p class="small muted" style="margin:0">Shows up after ${RELIABILITY_MIN} invites or plans with someone. Answer the “Did this happen?” and “Any replies?” prompts to build it.</p></div>`}
+      ${gameOn() ? `<div class="box help"><h3>⭐ How XP works</h3><table>
+        <tr><td>💬 Message · 📥 they got in touch</td><td>5</td></tr><tr><td>📞 Call · 🎥 video</td><td>10 · 15</td></tr>
+        <tr><td>🤝 See someone</td><td>25</td></tr><tr><td>💌 Invite · 📅 add a plan</td><td>5 · 10</td></tr>
+        <tr><td>🎉 A plan that happened</td><td>+15</td></tr><tr><td>🔁 Reconnect after 6+ months</td><td>+20</td></tr>
+        <tr><td>🎂 On their birthday</td><td>+10</td></tr><tr><td>🎯 Each weekly quest</td><td>+${QUEST_XP}</td></tr></table></div>` : ''}`;
+  }
+
+  const TODAY_PICKS = 3;  // how many people Today puts first
+  const SNOOZE_DAYS = 3;  // "Later" hides someone from Today's picks for this long
+
+  const snoozed = f => ((S.logByName || {})[f.name.toLowerCase()] || []).some(e => e.type === 'snooze' && e.date > iso(addDays(today(), -SNOOZE_DAYS)));
+  // The few people most worth contacting today: birthdays first, then whoever most needs you.
+  function todaysPicks() {
+    const bdays = S.friends.filter(f => f.$.bday && f.$.bday.days === 0 && f.$.dContact !== 0);
+    const due = S.friends.filter(f => (f.$.needsMessage || f.$.needsBooking) && !snoozed(f) && f.$.dContact !== 0 && !bdays.includes(f))
+      .sort((a, b) => b.$.priority - a.$.priority);
+    return [...bdays, ...due].slice(0, TODAY_PICKS);
+  }
+  function pickReason(f) {
+    const $f = f.$;
+    if ($f.bday && $f.bday.days === 0) return `🎂 Birthday today${$f.bday.age ? ': ' + $f.bday.age + '!' : '!'}`;
+    if ($f.needsBooking) return `🤝 Not seen ${$f.dSeen == null ? 'yet' : 'for ' + ago($f.dSeen).replace(' ago', '')}. Time to make a plan?`;
+    return `💬 ${$f.dContact == null ? 'No catch-ups logged yet' : ago($f.dContact).replace(' ago', '') + ' since you were in touch'}`;
+  }
+
+  // Everything waiting on a quick yes/no from you, as one short list.
+  function checkIns() {
+    const items = [];
+    const row = (f, text, buttons) => `<div class="check-row">${avatar(f, 'sm')}<div class="grow" style="min-width:0"><b>${esc(f.name)}</b><div class="small muted">${text}</div></div>${buttons}</div>`;
+    S.friends.filter(f => f.$.planPast).forEach(f => items.push(row(f, `❓ Did “${esc(f.nextplan || 'your plan')}” happen? ${fmtDate(f.$.planDate)}`,
+      `<button class="btn primary" data-act="plan-yes" data-row="${f._row}">Yes</button><button class="btn" data-act="plan-they" data-row="${f._row}" title="They cancelled">They ✗</button><button class="btn" data-act="plan-me" data-row="${f._row}" title="You cancelled">Me ✗</button>`)));
+    autoLogged().forEach(({ e, f }) => items.push(row(f, `🤖 Assumed your plan on ${fmtDate(parseDate(e.date))} happened`,
+      `<button class="btn" data-act="auto-ok" data-v="${esc(e.id)}">👍</button><button class="btn" data-act="auto-they" data-v="${esc(e.id)}" data-row="${f._row}">They ✗</button><button class="btn" data-act="auto-me" data-v="${esc(e.id)}" data-row="${f._row}">Me ✗</button>`)));
+    S.friends.filter(f => f.$.rel.pendingInvite && daysSince(f.$.rel.pendingInvite.date) >= 4).forEach(f => items.push(row(f, `💌 Invited ${ago(daysSince(f.$.rel.pendingInvite.date))}. Any reply?`,
+      `<button class="btn primary" data-act="inv-reply" data-v="yes" data-row="${f._row}" title="Made a plan">📅</button><button class="btn" data-act="inv-reply" data-v="declined" data-row="${f._row}">No</button><button class="btn" data-act="inv-reply" data-v="noreply" data-row="${f._row}" title="No reply">👻</button>`)));
+    S.friends.map(f => ({ f, s: tierSuggestion(f) })).filter(x => x.s).slice(0, 2).forEach(({ f, s }) => items.push(row(f, `🎚️ ${esc(s.why)}`,
+      `<button class="btn primary" data-act="tier-move" data-v="${s.to}" data-row="${f._row}">${s.dir === 'down' ? '⬇️' : '⬆️'} Tier ${s.to}</button><button class="btn" data-act="tier-keep" data-row="${f._row}">Keep</button>`)));
+    const setup = (emoji, title, text, on, off) => `<div class="check-row"><div style="font-size:26px;width:36px;text-align:center">${emoji}</div><div class="grow"><b>${title}</b><div class="small muted">${text}</div></div>
+      <button class="btn primary" data-act="${on}">Turn on</button><button class="btn" data-act="${off}" aria-label="No thanks">✕</button></div>`;
+    return items;
+  }
+
+  const CHRISTMAS_FROM = '11-25', CHRISTMAS_TO = '12-20'; // when Today shows the Christmas-cards reminder
+  function whenLabel(d) {
+    const n = daysBetween(today(), d);
+    return n === 0 ? 'today' : n === 1 ? 'tomorrow' : n < 7 ? d.toLocaleDateString('en-GB', { weekday: 'long' }) : fmtDate(d);
+  }
+
+  // A weekly round-up at the top of Today. It opens itself on your first visit each week.
+  function yourWeek() {
+    const t = today(), key = weekKey(t), start = weekStart(t);
+    const nameChip = (f, extra) => `<button class="chip tiny" data-open="${f._row}">${esc(f.name.split(' ')[0])}${extra ? ' · ' + extra : ''}</button>`;
+    const rows = [];
+    const add = (title, body) => rows.push(`<div style="margin-top:12px"><div class="eyebrow" style="margin-bottom:6px">${title}</div><div class="tag-edit">${body}</div></div>`);
+
+    const bdays = S.friends.filter(f => f.$.bday && f.$.bday.days <= 13).sort((a, b) => a.$.bday.days - b.$.bday.days);
+    if (bdays.length) add('🎂 Birthdays coming up', bdays.map(f => nameChip(f, whenLabel(f.$.bday.date))).join(''));
+    const plans = S.friends.filter(f => f.$.booked && f.$.planDays != null && f.$.planDays <= 6).sort((a, b) => a.$.planDays - b.$.planDays);
+    if (plans.length) add('📅 In the diary', plans.map(f => nameChip(f, esc(f.nextplan || 'plan') + ', ' + whenLabel(f.$.planDate))).join(''));
+    const toSee = S.friends.filter(f => f.$.needsBooking).sort((a, b) => b.$.priority - a.$.priority).slice(0, 4);
+    if (toSee.length) add('🤝 Try to see this week', toSee.map(f => nameChip(f)).join(''));
+    const base = currentBase();
+    if (base) {
+      const ideas = inviteCandidates('base:' + base.name).filter(f => f.$.seeRatio >= 0.8).length;
+      if (ideas) add(`💌 Near ${esc(base.name)}`, `<button class="chip tiny" data-act="invite" data-v="base:${esc(base.name)}">${plural(ideas, 'friend')} due a catch-up · plan something</button>`);
+    }
+    const md = iso(t).slice(5);
+    if (md >= CHRISTMAS_FROM && md <= CHRISTMAS_TO) {
+      const cards = S.friends.filter(f => isYes(f.christmascard));
+      const missing = cards.filter(f => !postalAddress(f)).length;
+      add('🎄 Christmas cards', `<button class="chip tiny" data-act="go-xmas">${plural(cards.length, 'card')} to send${missing ? ` · ${missing} need an address` : ''} · open the list</button>`);
+    }
+    const lastKey = iso(addWeeks(start, -1));
+    const lastWeek = S.log.filter(e => CHANNEL[e.type] && e.date >= lastKey && e.date < key).length;
+    add('📈 Last week', `<span class="small">${lastWeek ? `You logged ${plural(lastWeek, 'catch-up')}.` : 'Nothing logged last week. A quick ⚡ log helps keep the scores right.'}</span>`);
+
+    const monday = t.getDay() === 1;
+    let open = true;
+    try { open = localStorage.getItem('socialos.weekClosed') !== key; } catch (e) {}
+    const range = `${start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${addDays(start, 6).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+    return `<details class="box fold" data-week="${key}" ${open ? 'open' : ''} style="${open && monday ? 'outline:2px solid var(--accent)' : ''}">
+      <summary><h3>🗓️ ${monday ? 'It’s Monday! Here’s your week' : 'Your week'} <span class="muted small" style="font-family:Nunito">${range}</span></h3></summary>
+      ${rows.join('')}</details>`;
+  }
+
+  function scoreRow() {
+    const o = overallScore();
+    const g = gameOn() ? gameStats() : null;
+    return `<div class="score-row" data-act="progress">
+      <span class="num" style="color:${healthColor(o.score)}">${o.score}</span>
+      <div class="grow" style="min-width:0"><div class="eyebrow">Friendship score</div>${deltaChip(o.score).replace('class="delta', 'style="margin-left:0" class="delta')}</div>
+      ${g ? `<span class="mini">🔥 ${g.streak}</span><span class="mini">⭐ ${g.level}</span>` : ''}<span class="muted" style="font-size:22px">›</span></div>`;
+  }
+
+  function viewToday() {
+    const all = S.friends.filter(f => f.$.tier);
+    const msg = all.filter(f => f.$.needsMessage).sort((a, b) => b.$.priority - a.$.priority);
+    const book = all.filter(f => f.$.needsBooking).sort((a, b) => b.$.priority - a.$.priority);
+    const booked = S.friends.filter(f => f.$.booked).sort((a, b) => (a.$.planDays ?? 999) - (b.$.planDays ?? 999));
+    const bdays = S.friends.filter(f => f.$.bday && f.$.bday.days > 0 && f.$.bday.days <= 14).sort((a, b) => a.$.bday.days - b.$.bday.days);
+    const picks = todaysPicks();
+    const base = currentBase();
+
+    let h = `<div class="hello"><h2>${greeting()}</h2>
+      <button class="chip" style="margin-top:8px" data-act="bases">🏠 ${base ? esc(base.name) : 'Where are you living?'} <span class="n">▾</span></button></div>`;
+    if (S.data.version !== CLIENT_VERSION) h += `<div class="banner" style="background:color-mix(in srgb, var(--bad) 14%, transparent)">
+      <b>⚠️ Code.gs and Index.html don’t match.</b><div class="small">Paste the latest version of both files into Apps Script, then Deploy → Manage deployments → ✏️ → New version.</div></div>`;
+    h += scoreRow();
+    h += yourWeek();
+
+    h += `<div class="section-title" style="margin-top:6px">✨ Today’s ${picks.length > 1 ? picks.length + ' people' : 'person'}</div>`;
+    if (!picks.length) h += emptyState('🌈', 'Nobody needs you today', 'Everyone’s up to date. Enjoy it!');
+    picks.forEach(f => {
+      h += `<div class="pick"><div class="row" data-open="${f._row}" style="cursor:pointer">${avatar(f)}
+          <div class="grow" style="min-width:0"><div class="name">${esc(f.name)}</div><div class="why">${pickReason(f)}</div></div></div>
+        <div class="btns">
+          <button class="btn primary" data-act="log" data-type="message" data-row="${f._row}">💬 Messaged</button>
+          <button class="btn" data-act="log" data-type="meet" data-row="${f._row}" title="Saw them">🤝 Saw</button>
+          <button class="btn" data-act="book" data-row="${f._row}" title="Make a plan">📅 Plan</button>
+          <button class="btn" data-act="snooze" data-row="${f._row}" title="Not today">💤 Later</button></div></div>`;
+    });
+    h += `<button class="btn block" style="margin:4px 0 6px;padding:13px" data-act="quick">⚡ Log catch-ups</button>`;
+
+    const checks = checkIns();
+    if (checks.length) {
+      const shown = S.showAllChecks ? checks : checks.slice(0, 3);
+      h += `<div class="section-title">✅ Quick check-ins <span class="count">${checks.length}</span></div>
+        <div class="box" style="padding:4px 14px">${shown.join('')}
+        ${checks.length > shown.length ? `<button class="btn block" style="margin:6px 0 10px;padding:8px" data-act="more-checks">Show ${checks.length - shown.length} more</button>` : ''}</div>`;
+    }
+
+    if (bdays.length) {
+      h += `<div class="section-title">🎂 Birthdays coming up</div><div class="scroll-x">${bdays.map(f => `
+        <div class="bday-pill" data-open="${f._row}">${avatar(f)}<div class="name" style="font-size:15px">${esc(f.name.split(' ')[0])}</div>
+        <div class="when">${inDays(f.$.bday.days)}</div>
+        <div class="small muted">${f.$.bday.age ? 'turns ' + f.$.bday.age : fmtDate(f.$.bday.date)}</div></div>`).join('')}</div>`;
+    }
+
+    const F = S.todayFilter;
+    h += `<div class="section-title">📋 Everyone who’s due</div><div class="seg">
+      ${[['all', 'All'], ['message', '💬 Message'], ['book', '🤝 To see'], ['booked', '📅 Plans']].map(([k, label]) => {
+        const n = k === 'message' ? msg.length : k === 'book' ? book.length : k === 'booked' ? booked.length : null;
+        return `<button class="${F === k ? 'on' : ''}" data-act="today-filter" data-v="${k}">${label}${n ? `<span class="n">${n}</span>` : ''}</button>`;
+      }).join('')}</div>`;
+    let list;
+    if (F === 'message') list = msg;
+    else if (F === 'book') list = book;
+    else if (F === 'booked') list = booked;
+    else list = [...new Set([...msg, ...book])].sort((a, b) => b.$.priority - a.$.priority);
+    if (!list.length) {
+      h += F === 'booked' ? emptyState('🗓️', 'No plans yet', 'Tap 📅 on a friend when you’ve got something in the diary, whoever arranged it.')
+        : emptyState('🌈', 'All caught up!', 'Nobody is overdue. Go enjoy your day.');
+    } else {
+      const shown = S.showAllDue ? list : list.slice(0, 8);
+      h += shown.map(card).join('');
+      if (list.length > shown.length) h += `<button class="btn block" data-act="more-due">Show all ${list.length}</button>`;
+    }
+    return h;
+  }
+
+
+  // Search understands plain words plus tag:, place:, tier:, met:, prox:, gift:, is:
+  function matches(f, q) {
+    const tokens = [];
+    const free = q.replace(/(\w+):(?:"([^"]*)"|(\S+))/g, (_, k, a, b) => { tokens.push([k.toLowerCase(), (a ?? b).toLowerCase()]); return ' '; });
+    for (const [k, v] of tokens) {
+      const ok = {
+        tag: () => f.$.tags.some(t => t.toLowerCase() === v || t.toLowerCase().includes(v)),
+        place: () => f.$.places.some(t => t.toLowerCase().includes(v)),
+        tier: () => String(f.$.tier) === v,
+        met: () => String(f.meeting || '').toLowerCase().includes(v),
+        prox: () => String(f.$.prox) === v,
+        gift: () => String(f.gifteffort || '').toLowerCase().includes(v),
+        is: () => ({
+          due: f.$.needsMessage, book: f.$.needsBooking, booked: f.$.booked,
+          christmas: isYes(f.christmascard) || isYes(f.christmasgifteffort),
+          birthday: !!f.$.bday, untiered: !f.$.tier, ideas: !!String(f.futuregiftideas || '').trim()
+        })[v]
+      }[k];
+      if (ok ? !ok() : !f.$.hay.includes(v)) return false;
+    }
+    return free.toLowerCase().split(/\s+/).filter(Boolean).every(w => f.$.hay.includes(w));
+  }
+
+  const SORTS = {
+    priority: ['Who needs me most', (a, b) => b.$.priority - a.$.priority],
+    health: ['Health (lowest first)', (a, b) => (a.$.health ?? 999) - (b.$.health ?? 999)],
+    tier: ['Tier', (a, b) => (a.$.tier || 9) - (b.$.tier || 9) || a.name.localeCompare(b.name)],
+    name: ['Name A–Z', (a, b) => a.name.localeCompare(b.name)],
+    contacted: ['Longest since contact', (a, b) => (b.$.dContact ?? 1e6) - (a.$.dContact ?? 1e6)],
+    seen: ['Longest since seen', (a, b) => (b.$.dSeenEff ?? 1e6) - (a.$.dSeenEff ?? 1e6)],
+    birthday: ['Next birthday', (a, b) => (a.$.bday ? a.$.bday.days : 999) - (b.$.bday ? b.$.bday.days : 999)]
+  };
+  const STATUS = [['due', '💬 Message due'], ['book', '🤝 Due a meet-up'], ['booked', '📅 Has a plan'], ['christmas', '🎄 Christmas list'], ['ideas', '🎁 Has gift ideas'], ['untiered', '❔ No tier']];
+
+  function filteredFriends() {
+    let list = S.friends.filter(f => matches(f, S.query));
+    if (S.tiers.size) list = list.filter(f => S.tiers.has(f.$.tier));
+    if (S.status) list = list.filter(f => matches(f, 'is:' + S.status));
+    return list.sort(SORTS[S.sort][1]);
+  }
+
+  function viewFriends() {
+    const list = filteredFriends();
+    const tierCounts = {};
+    S.friends.forEach(f => { tierCounts[f.$.tier] = (tierCounts[f.$.tier] || 0) + 1; });
+    return `
+      <div class="search"><span class="mag">🔎</span>
+        <input class="input" id="searchInput" type="search" placeholder="Search anything… try tag:climbing" value="${esc(S.query)}" autocomplete="off">
+      </div>
+      <div class="scroll-x">
+        <button class="chip" data-act="add">🌱 Add friend</button>
+        <button class="chip" data-act="browse">🏷️ All tags & search terms</button>
+        ${[1, 2, 3, 4, 5, 6].filter(t => tierCounts[t]).map(t => `<button class="chip ${S.tiers.has(t) ? 'on' : ''}" data-act="tier-filter" data-v="${t}">
+          <span class="tier-dot" style="background:${S.tiers.has(t) ? 'currentColor' : tierColor(t)}"></span>Tier ${t}${tierRule(t).label ? ' · ' + esc(tierRule(t).label) : ''} <span class="n">${tierCounts[t]}</span></button>`).join('')}
+      </div>
+      <div class="scroll-x">
+        ${STATUS.map(([k, label]) => `<button class="chip ${S.status === k ? 'on' : ''}" data-act="status-filter" data-v="${k}">${label}</button>`).join('')}
+      </div>
+      <div class="row" style="margin:8px 2px 12px">
+        <div class="grow muted small" style="font-weight:800">${plural(list.length, 'friend')}${S.query || S.tiers.size || S.status ? ` · <a href="#" data-act="clear-filters">clear filters</a>` : ''}</div>
+        <select class="input" style="width:auto;padding:8px 12px;font-size:14px;font-weight:700" id="sortSelect" aria-label="Sort">
+          ${Object.entries(SORTS).map(([k, [label]]) => `<option value="${k}" ${S.sort === k ? 'selected' : ''}>↕ ${label}</option>`).join('')}
+        </select>
+      </div>
+      <div id="friendList">${list.length ? list.map(card).join('') : emptyState('🔍', 'No matches', 'Try a different word, or tap 🏷️ to see every tag.')}</div>`;
+  }
+
+  function miniRow(f, extra = '') {
+    const $f = f.$;
+    const why = $f.booked ? `📅 ${esc(f.nextplan || 'Plan')}` : $f.recentlyInvited ? `💌 invited ${ago($f.dInvited)}`
+      : $f.dSeenEff == null ? 'no meet-up logged' : `seen ${ago($f.dSeen ?? $f.dSeenEff)}`;
+    return `<div class="list-row" data-open="${f._row}">${avatar(f, 'sm')}
+      <div class="grow"><div class="name" style="font-size:16px">${esc(f.name)}</div>
+        <div class="sub">${tierBadge(f)} · <span style="color:${$f.needsBooking ? 'var(--bad)' : 'inherit'}">${why}</span></div>${extra}</div>
+      <button class="act ${$f.booked ? 'on' : ''}" style="padding:8px 10px" data-act="book" data-row="${f._row}"><span class="e">📅</span></button></div>`;
+  }
+
+  function viewPlaces() {
+    const keys = placeKeys();
+    let h = `<div class="hello"><h2>📍 Places</h2><p>Who to see in each place, most overdue first.</p>
+      <button class="chip" style="margin-top:10px" data-tab="map">🗺️ Map</button>
+      <button class="chip" style="margin-top:10px" data-act="bases">🏠 ${currentBase() ? 'Living in ' + esc(currentBase().name) : 'Add your home bases'} <span class="n">▾</span></button></div>`;
+    if (!keys.length) return h + emptyState('🧭', 'No places yet', 'Add place tags to friends, or add a home base.');
+    keys.forEach(p => {
+      const members = placeMembers(p.key).filter(f => f.$.tier).sort(seeRank);
+      if (!members.length && !p.base) return;
+      const due = members.filter(f => f.$.needsBooking).length;
+      const open = S.openPlaces.has(p.key);
+      const shown = open ? members : members.slice(0, 5);
+      h += `<div class="section-title" style="margin-bottom:2px">${p.base ? '🏠' : '📍'} ${esc(p.label)}${p.current ? ' <span class="chip tiny" style="background:var(--accent);color:var(--accent-ink)">home now</span>' : ''}
+          <button class="chip tiny" style="margin-left:auto" data-act="invite" data-v="${esc(p.key)}">💌 Invite</button></div>
+        <div class="small muted" style="margin:0 4px 10px;font-weight:700">${plural(members.length, 'friend')}${p.base ? ` within ${NEAR_KM} km` : ''}${due ? ` · <span style="color:var(--bad)">${due} to see</span>` : ''}</div>
+        ${shown.map(f => miniRow(f)).join('') || `<p class="muted small" style="margin:0 4px">Nobody within ${NEAR_KM} km yet.</p>`}
+        ${members.length > 5 ? `<button class="btn block" style="padding:8px" data-act="toggle-place" data-v="${esc(p.key)}">${open ? 'Show fewer' : `Show all ${members.length}`}</button>` : ''}`;
+    });
+    return h;
+  }
+
+  function viewDates() {
+    let h = `<div class="seg">
+      <button class="${S.datesView === 'birthdays' ? 'on' : ''}" data-act="dates-view" data-v="birthdays">🎂 Birthdays</button>
+      <button class="${S.datesView === 'christmas' ? 'on' : ''}" data-act="dates-view" data-v="christmas">🎄 Christmas</button></div>`;
+    if (S.datesView === 'birthdays') {
+      const list = S.friends.filter(f => f.$.bday).sort((a, b) => a.$.bday.days - b.$.bday.days);
+      const missing = S.friends.length - list.length;
+      let month = '';
+      h += list.map(f => {
+        const b = f.$.bday;
+        const m = b.date.toLocaleDateString('en-GB', { month: 'long', year: b.date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined });
+        const head = m !== month ? `<div class="month">${m}</div>` : '';
+        month = m;
+        return head + `<div class="list-row" data-open="${f._row}">${avatar(f, 'sm')}
+          <div class="grow"><div class="name" style="font-size:16px">${esc(f.name)}</div>
+            <div class="sub">${fmtDate(b.date)}${b.age ? ' · turns ' + b.age : ''}${f.gifteffort ? ' · 🎁 ' + esc(f.gifteffort) : ''}</div>
+            ${f.futuregiftideas ? `<div class="small muted" style="margin-top:2px">💡 ${esc(f.futuregiftideas)}</div>` : ''}</div>
+          <div class="meta" style="color:${b.days <= 14 ? 'var(--t1)' : 'var(--muted)'}">${b.days === 0 ? 'Today 🎉' : inDays(b.days)}</div></div>`;
+      }).join('');
+      if (!list.length) h += emptyState('🎂', 'No birthdays yet', 'Add birthdays from a friend’s page.');
+      if (missing) h += `<p class="muted small" style="text-align:center;margin-top:18px">${plural(missing, 'friend')} without a birthday saved.</p>`;
+    } else {
+      const list = S.friends.filter(f => isYes(f.christmascard) || isYes(f.christmasgifteffort))
+        .sort((a, b) => (a.$.tier || 9) - (b.$.tier || 9) || a.name.localeCompare(b.name));
+      const cards = list.filter(f => isYes(f.christmascard)).length;
+      const gifts = list.filter(f => isYes(f.christmasgifteffort)).length;
+      const noAddr = list.filter(f => isYes(f.christmascard) && !postalAddress(f)).length;
+      h += `<div class="box"><div class="small muted" style="margin-bottom:10px">From 25 November, Today reminds you about this list.</div>
+        <div class="row">
+          <button class="btn grow" data-act="copy-addresses">📋 Copy addresses</button>
+          <button class="btn grow" data-act="copy-xmas">📋 Copy full list</button></div>
+      </div>
+      <div class="section-title">💌 ${plural(cards, 'card')} · 🎁 ${plural(gifts, 'gift')}${noAddr ? ` <span class="count" style="color:var(--bad)">${noAddr} missing an address</span>` : ''}</div>`;
+      h += list.map(f => `<div class="list-row" data-open="${f._row}" style="align-items:flex-start">${avatar(f, 'sm')}
+        <div class="grow"><div class="name" style="font-size:16px">${esc(f.name)}</div>
+          <div class="small" style="white-space:pre-line">${postalAddress(f) ? esc(postalAddress(f)) : '<span style="color:var(--bad)">No address yet</span>'}</div>
+          ${f.futuregiftideas ? `<div class="small muted">💡 ${esc(f.futuregiftideas)}</div>` : ''}
+</div>
+        <div class="meta">${isYes(f.christmascard) ? '💌' : ''}${isYes(f.christmasgifteffort) ? `<div class="small muted">🎁 ${esc(f.christmasgifteffort)}</div>` : ''}</div></div>`).join('');
+      if (!list.length) h += emptyState('🎄', 'Nobody on the list yet', 'Turn on “Christmas card” on a friend’s page.');
+    }
+    return h;
+  }
+
+  /* ───────────── Bottom sheets ───────────── */
+  function openSheet(kind, extra = {}) { S.sheet = Object.assign({ kind }, extra); $('#sheet').hidden = false; renderSheet(); $('#sheetPanel').scrollTop = 0; }
+  function closeSheet() { S.sheet = null; $('#sheet').hidden = true; $('#sheetPanel').innerHTML = ''; }
+  function rerenderSheet() {
+    if (!S.sheet || S.sheet.kind !== 'friend') return;
+    const panel = $('#sheetPanel'), top = panel.scrollTop;
+    renderSheet(); panel.scrollTop = top;
+  }
+  function renderSheet() {
+    if (!S.sheet) return;
+    const k = S.sheet.kind;
+    const html = k === 'friend' ? sheetFriend() : k === 'book' ? sheetBook() : k === 'add' ? sheetAdd()
+      : k === 'progress' ? sheetProgress() : k === 'quick' ? sheetQuick() : k === 'browse' ? sheetBrowse() : k === 'settings' ? sheetSettings() : k === 'bases' ? sheetBases() : k === 'invite' ? sheetInvite() : '';
+    if (!html) return closeSheet();
+    $('#sheetPanel').innerHTML = `<button class="close" data-act="close" aria-label="Close">✕</button><div class="grabber"></div>` + html;
+  }
+
+  const editable = key => !(S.cols[key] && S.cols[key].computed);
+  function fieldInput(f, key, label, opts = {}) {
+    if (!editable(key)) return `<div class="field"><span>${esc(label)} 🔒</span><div class="input" style="opacity:.75">${esc(f[key]) || '—'}</div></div>`;
+    const v = f[key] ?? '';
+    const common = `class="input" data-save="${key}" data-row="${f._row}"`;
+    let input;
+    if (opts.type === 'textarea') input = `<textarea ${common} placeholder="${esc(opts.placeholder || '')}">${esc(v)}</textarea>`;
+    else if (opts.type === 'date') { const d = parseDate(v); input = `<input type="date" ${common} value="${d && !d.noYear ? iso(d) : ''}">`; }
+    else input = `<input ${common} value="${esc(v)}" placeholder="${esc(opts.placeholder || '')}" ${opts.list ? `list="${opts.list}"` : ''}>`;
+    return `<label class="field"><span>${esc(label)}</span>${input}</label>`;
+  }
+
+  function allValues(key, splitter = splitTags) {
+    const counts = {};
+    S.friends.forEach(f => splitter(f[key]).forEach(t => { const k = t.toLowerCase(); counts[k] = counts[k] || { label: t, n: 0 }; counts[k].n++; }));
+    return Object.values(counts).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
+  }
+  const single = v => String(v || '').trim() ? [String(v).trim()] : [];
+
+  function tagEditor(f, key, label, emoji) {
+    if (!editable(key)) return '';
+    const tags = splitTags(f[key]);
+    const listId = 'dl-' + key;
+    return `<div class="field"><span>${emoji} ${label}</span><div class="tag-edit">
+      ${tags.map((t, i) => `<span class="chip tiny">${esc(t)}<button class="x" data-act="tag-remove" data-key="${key}" data-row="${f._row}" data-i="${i}" aria-label="Remove ${esc(t)}">✕</button></span>`).join('')}
+      <input placeholder="+ add" list="${listId}" data-tag-add="${key}" data-row="${f._row}" enterkeyhint="done">
+      <datalist id="${listId}">${allValues(key).filter(v => !tags.some(t => t.toLowerCase() === v.label.toLowerCase())).map(v => `<option value="${esc(v.label)}">`).join('')}</datalist>
+    </div></div>`;
+  }
+
+  function sheetFriend() {
+    const f = S.byRow[S.sheet.row];
+    if (!f) return '';
+    const $f = f.$;
+    const phone = String(f.phone || '').replace(/[^\d+]/g, '');
+    const addr = postalAddress(f);
+    const tiers = [1, 2, 3, 4, 5, 6];
+    const proxOpts = [1, 2, 3, 4, 5, 6].map(p => `<option value="${p}" ${$f.prox === p ? 'selected' : ''}>${p} · ${esc(proxRule(p).geography || 'Proximity ' + p)}</option>`).join('');
+    const sheetLink = S.data.sheetUrl + '&range=A' + f._row;
+
+    return `
+      <div class="sheet-head">${avatar(f, 'lg')}
+        <div class="grow"><h2>${esc(f.name)}</h2><div class="sub">${tierBadge(f)}</div>
+        ${f.meeting ? `<div class="small muted">🤝 ${esc(f.meeting)}</div>` : ''}</div>
+        ${ring($f.health, 64)}</div>
+
+      <div class="actions" style="margin:0 0 12px;grid-template-columns:repeat(4,1fr)">
+        <button class="act" data-act="log" data-type="message" data-row="${f._row}"><span class="e">💬</span>Messaged</button>
+        <button class="act" data-act="log" data-type="call" data-row="${f._row}"><span class="e">📞</span>Called</button>
+        <button class="act" data-act="log" data-type="video" data-row="${f._row}"><span class="e">🎥</span>Video</button>
+        <button class="act" data-act="log" data-type="meet" data-row="${f._row}"><span class="e">🤝</span>Saw</button>
+        <button class="act" data-act="log" data-type="reached" data-row="${f._row}"><span class="e">📥</span>They got in touch</button>
+        <button class="act" data-act="log" data-type="invite" data-row="${f._row}"><span class="e">💌</span>I invited them</button>
+        <button class="act ${$f.booked ? 'on' : ''}" data-act="book" data-row="${f._row}"><span class="e">📅</span>${$f.booked ? 'Plan ✓' : 'Plan'}</button>
+      </div>
+      ${phone ? `<div class="links" style="margin-bottom:12px">
+        <a class="btn grow" href="sms:${esc(phone)}">💬 Text</a>
+        <a class="btn grow" href="tel:${esc(phone)}">📞 Ring</a></div>` : ''}
+
+      ${$f.hasPlan ? `<div class="box"><h3>${$f.planPast ? '❓ Did this happen?' : '📅 Plan'}</h3>
+        <div class="row"><div class="grow"><b>${esc(f.nextplan || 'Plan')}</b><div class="small muted">${$f.planDate ? fmtDate($f.planDate) + ' · ' + inDays($f.planDays) : 'No date yet'}</div></div>
+          </div>
+        <div class="row" style="margin-top:10px">
+          ${$f.planDays != null && $f.planDays > 0
+            ? `<button class="btn grow" style="padding:8px 10px" data-act="book" data-row="${f._row}">✏️ Edit</button>`
+            : `<button class="btn primary grow" style="padding:8px 10px" data-act="plan-yes" data-row="${f._row}">It happened 🎉</button>`}
+          <button class="btn grow" style="padding:8px 10px" data-act="plan-they" data-row="${f._row}">They cancelled</button>
+          <button class="btn grow" style="padding:8px 10px" data-act="plan-me" data-row="${f._row}">I cancelled</button></div></div>` : ''}
+      ${$f.rel.pendingInvite ? `<div class="box"><h3>💌 Invited ${ago(daysSince($f.rel.pendingInvite.date))}: any reply?</h3><div class="row">
+          <button class="btn primary grow" style="padding:8px" data-act="inv-reply" data-v="yes" data-row="${f._row}">📅 Made a plan</button>
+          <button class="btn grow" style="padding:8px" data-act="inv-reply" data-v="declined" data-row="${f._row}">🙂 Said no</button>
+          <button class="btn grow" style="padding:8px" data-act="inv-reply" data-v="noreply" data-row="${f._row}">👻 No reply</button></div></div>` : ''}
+
+      <div class="box"><h3>💗 Friendship health</h3>
+        ${$f.tier ? `
+        <div class="kv"><span>🔋 Friendship battery</span><b>${$f.health}%${$f.booked && $f.bat.total < PLAN_FLOOR ? ' <span class="muted small">(plan in the diary)</span>' : ''}</b></div>
+        <div class="bar" style="display:flex;gap:2px;background:var(--surface-2)">
+          <i style="width:${Math.round($f.bat.inPerson)}%;background:var(--good)" title="In person"></i>
+          <i style="width:${Math.round($f.bat.topUp)}%;background:var(--t5)" title="Calls, video & messages"></i></div>
+        <div class="small muted"><span style="color:var(--good)">■</span> in person ${Math.round($f.bat.inPerson)} · <span style="color:var(--t5)">■</span> calls, video & messages +${Math.round($f.bat.topUp)}</div>
+        <div class="kv" style="margin-top:10px"><span>🤝 Seen <span class="muted">· aim ${every($f.seeGoal)}</span></span><b>${ago($f.dSeen)}</b></div>
+        <div class="kv"><span>💬 In touch <span class="muted">· aim ${every($f.contactGoal)}</span></span><b>${ago($f.dContact)}</b></div>
+        ${$f.dCall != null ? `<div class="kv"><span>📞 Last call or video</span><b>${ago($f.dCall)}</b></div>` : ''}
+        ` : `<div class="small muted">Pick a tier below to start tracking this friendship.</div>`}
+        ${$f.km != null ? `<div class="small" style="margin-top:10px">📍 About ${$f.km < 1 ? '<1' : Math.round($f.km)} km from ${esc(currentBase().name)} → <b>${esc(proxRule(distanceBand($f.km, currentBase(), $f.loc)).geography || 'band ' + distanceBand($f.km, currentBase(), $f.loc))}</b>${$f.proxAuto ? '' : ' <span class="muted">(auto distance is off)</span>'}</div>` : ''}
+        <div class="field" style="margin:14px 0 8px"><span>Tier</span><div class="tier-pick">
+          ${tiers.map(t => `<button class="${$f.tier === t ? 'on' : ''}" style="${$f.tier === t ? 'background:' + tierColor(t) : ''}" data-act="set-tier" data-row="${f._row}" data-v="${t}" ${editable('tier') ? '' : 'disabled'}>${t}</button>`).join('')}
+        </div></div>
+        <label class="field" style="margin:0"><span>${$f.proxAuto ? 'Distance in sheet (used when auto is off)' : 'How far away'}</span>
+          <select class="input" data-save="proximityscore" data-row="${f._row}" ${editable('proximityscore') ? '' : 'disabled'}><option value="">–</option>${proxOpts}</select></label>
+      </div>
+
+      <details class="box fold" data-box="reliability" ${S.openBoxes.has('reliability') ? 'open' : ''}><summary><h3>🤝 Reliability</h3></summary>
+        <div class="kv"><span>${reliabilityLabel($f.rel)}</span><b>${$f.rel.attempts >= RELIABILITY_MIN ? Math.round($f.rel.reliability * 100) + '%' : '–'}</b></div>
+        ${$f.rel.attempts >= RELIABILITY_MIN ? `<div class="bar"><i style="width:${Math.round($f.rel.reliability * 100)}%;background:${healthColor($f.rel.reliability * 100)}"></i></div>` : ''}
+        <div class="small muted" style="margin-top:6px">Plans kept ${$f.rel.kept} · said yes ${$f.rel.yes} · cancelled ${$f.rel.cancelled} · no reply ${$f.rel.ghosted} · said no ${$f.rel.declined}</div>
+        <div class="small muted">Last 90 days: you messaged or invited ${$f.rel.mine90}×, they got in touch ${$f.rel.theirs90}× (tap 📥 when they do)</div>
+        ${tierSuggestion(f) ? `<div class="row" style="margin-top:10px"><button class="btn primary grow" data-act="tier-move" data-v="${tierSuggestion(f).to}" data-row="${f._row}">${tierSuggestion(f).dir === 'down' ? '⬇️' : '⬆️'} Suggest: move to tier ${tierSuggestion(f).to}</button>
+          <button class="btn" data-act="tier-keep" data-row="${f._row}">Keep</button></div>` : ''}
+      </details>
+
+      <details class="box fold" data-box="tags" ${S.openBoxes.has('tags') ? 'open' : ''}><summary><h3>🏷️ Tags</h3></summary>
+        ${tagEditor(f, 'tags', 'Tags', '✨')}
+        ${tagEditor(f, 'placetags', 'Places', '📍')}
+      </details>
+
+      <details class="box fold" data-box="birthdaygift" ${S.openBoxes.has('birthdaygift') ? 'open' : ''}><summary><h3>🎁 Birthday & gifts</h3></summary>
+        ${$f.bday ? `<p class="small" style="margin:0 0 10px"><b>${fmtDate($f.bday.date)}</b> · ${inDays($f.bday.days)}${$f.bday.age ? ' · turns ' + $f.bday.age : ''}</p>` : ''}
+        ${fieldInput(f, 'birthdaydate', 'Birthday', { type: 'date' })}
+        ${fieldInput(f, 'gifteffort', 'Birthday gift effort', { placeholder: 'e.g. Card, Small, Big', list: 'dl-effort' })}
+        ${fieldInput(f, 'futuregiftideas', 'Future gift ideas', { type: 'textarea', placeholder: 'They mentioned…' })}
+        ${fieldInput(f, 'giftslastbrought', 'Gifts last bought', { type: 'textarea' })}
+        <datalist id="dl-effort">${allValues('gifteffort', single).concat(allValues('christmasgifteffort', single)).map(v => `<option value="${esc(v.label)}">`).join('')}</datalist>
+      </details>
+
+      <details class="box fold" data-box="foodpreferen" ${S.openBoxes.has('foodpreferen') ? 'open' : ''}><summary><h3>🍽️ Food & preferences</h3></summary>
+        ${fieldInput(f, 'allergydietaryrequirements', 'Allergies / dietary needs', { placeholder: 'e.g. vegetarian, nut allergy' })}
+        ${fieldInput(f, 'likes', 'Likes', { type: 'textarea', placeholder: 'Spicy food, jazz, natural wine…' })}
+        ${fieldInput(f, 'dislikes', 'Dislikes', { type: 'textarea', placeholder: 'Mushrooms, karaoke…' })}
+      </details>
+
+      <details class="box fold" data-box="christmas" ${S.openBoxes.has('christmas') ? 'open' : ''}><summary><h3>🎄 Christmas</h3></summary>
+        <div class="row" style="margin-bottom:12px"><div class="grow"><b>Send a card</b></div>
+          <button class="switch ${isYes(f.christmascard) ? 'on' : ''}" data-act="toggle-card" data-row="${f._row}" aria-label="Christmas card" ${editable('christmascard') ? '' : 'disabled'}></button></div>
+        ${fieldInput(f, 'christmasgifteffort', 'Christmas gift effort', { placeholder: 'leave blank for none', list: 'dl-effort' })}
+      </details>
+
+      <details class="box fold" data-box="contactdetai" ${S.openBoxes.has('contactdetai') ? 'open' : ''}><summary><h3>🏠 Contact details</h3></summary>
+        ${fieldInput(f, 'phone', 'Phone', { placeholder: '07…' })}
+        ${fieldInput(f, 'address', 'Address', { type: 'textarea' })}
+        ${S.cols.address2 ? fieldInput(f, 'address2', 'Address (2nd column)', { type: 'textarea' }) : ''}
+        ${addr ? `<div class="links"><button class="btn grow" data-act="copy" data-text="${esc(addr)}">📋 Copy address</button>
+          <a class="btn grow" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}" target="_blank" rel="noopener">🗺️ Open map</a></div>` : ''}
+      </details>
+
+      <details class="box fold" data-box="notes" ${S.openBoxes.has('notes') ? 'open' : ''}><summary><h3>📝 Notes</h3></summary>
+        ${fieldInput(f, 'notes', 'Notes', { type: 'textarea', placeholder: 'News, kids’ names, what to ask about next time…' })}
+        ${fieldInput(f, 'meeting', 'How you met / usual meet-up')}
+      </details>
+
+      <details class="box fold" data-box="logsomething" ${S.openBoxes.has('logsomething') ? 'open' : ''}><summary><h3>🕰️ Log something from earlier</h3></summary>
+        <div class="row"><select class="input" id="pastType" style="width:auto"><option value="meet">🤝 Saw</option><option value="call">📞 Called</option><option value="video">🎥 Video call</option><option value="message">💬 Messaged</option><option value="invite">💌 Invited</option><option value="reached">📥 They got in touch</option></select>
+        <input class="input grow" type="date" id="pastDate" max="${iso(today())}" value="${iso(new Date(Date.now() - DAY))}">
+        <button class="btn primary" data-act="log-past" data-row="${f._row}">Log</button></div>
+      </details>
+
+      <details class="box fold" data-box="every" ${S.openBoxes.has('every') ? 'open' : ''}><summary><h3>🧾 Every column</h3></summary><div>
+        ${S.data.columns.filter(c => !['photo'].includes(c.key)).map(c => c.computed
+          ? `<div class="kv small" style="padding:6px 4px;border-bottom:1px solid var(--border)"><span class="muted">${esc(c.label)} 🔒</span><b>${esc(f[c.key]) || '—'}</b></div>`
+          : fieldInput(f, c.key, c.label, { type: c.date ? 'date' : undefined })).join('')}
+        ${fieldInput(f, 'photo', 'Photo link', { placeholder: 'https://…' })}
+      </div></details>
+
+      <a class="btn block" href="${esc(sheetLink)}" target="_blank" rel="noopener">📄 Open this row in the spreadsheet</a>`;
+  }
+
+  function sheetBook() {
+    const f = S.byRow[S.sheet.row];
+    if (!f) return '';
+    const ideas = [...new Set([...splitTags(f.meeting), 'Coffee', 'Dinner', 'Drinks', 'Walk', 'Video call', 'Visit'])].slice(0, 8);
+    const d = f.$.planDate;
+    const org = S.sheet.org || '';
+    return `<div class="sheet-head">${avatar(f)}<div class="grow"><h2>📅 A plan with ${esc(f.name.split(' ')[0])}</h2><div class="sub">Whoever arranged it</div></div></div>
+      <label class="field"><span>What</span><input class="input" id="planWhat" value="${esc(f.nextplan || '')}" placeholder="Dinner at…"></label>
+      <div class="scroll-x" style="margin:-4px 0 12px">${ideas.map(i => `<button class="chip" data-act="plan-idea" data-v="${esc(i)}">${esc(i)}</button>`).join('')}</div>
+      <label class="field"><span>When</span><input class="input" type="date" id="planDate" value="${d && !d.noYear ? iso(d) : ''}" min="${iso(today())}"></label>
+      <div class="field"><span>Who organised it? (optional)</span><div class="row">
+        ${[['them', '🙌 They did'], ['me', '🙋 I did'], ['other', '👥 Someone else']].map(([k, l]) => `<button class="chip grow ${org === k ? 'on' : ''}" style="justify-content:center" data-act="plan-org" data-v="${k}">${l}</button>`).join('')}</div>
+        <div class="small muted" style="margin:6px 4px 0">If they invited you, it counts towards their reliability.</div></div>
+      <button class="btn primary block" data-act="plan-save" data-row="${f._row}">Save plan ✅</button>
+      ${f.$.hasPlan ? `<button class="btn block" style="margin-top:8px" data-act="plan-no" data-row="${f._row}">Remove plan</button>` : ''}`;
+  }
+
+  function sheetQuick() {
+    const q = S.quick || (S.quick = { text: '', parsed: [], day: iso(today()), filter: '' });
+    const recent = {};
+    S.log.forEach(e => { if (CHANNEL[e.type] && e.date >= iso(addDays(today(), -90))) recent[e.name.toLowerCase()] = (recent[e.name.toLowerCase()] || 0) + 1; });
+    const list = S.friends
+      .filter(f => !q.filter || f.$.hay.includes(q.filter.toLowerCase()))
+      .sort((a, b) => (b.$.planPast - a.$.planPast) || ((recent[b.name.toLowerCase()] || 0) - (recent[a.name.toLowerCase()] || 0)) || ((a.$.tier || 9) - (b.$.tier || 9)))
+      .slice(0, 30);
+    const days = [0, 1, 2, 3, 4, 5, 6].map(n => iso(addDays(today(), -n)));
+    return `<div class="sheet-head"><div style="font-size:40px">⚡</div><div class="grow"><h2>Log catch-ups</h2><div class="sub">Type it like a text, or tap below</div></div></div>
+      <textarea class="input" id="quickText" rows="3" placeholder="e.g. dinner with Sam and Jo on Saturday, called Mum yesterday, video with Chen">${esc(q.text)}</textarea>
+      <div id="quickPreview">${quickPreview()}</div>
+      <div class="section-title" style="margin-top:18px">Or tap people</div>
+      <div class="scroll-x" style="margin-bottom:8px">${days.map(d => `<button class="chip ${q.day === d ? 'on' : ''}" data-act="quick-day" data-v="${d}">${dayLabel(d)}</button>`).join('')}</div>
+      <input class="input" id="quickFilter" placeholder="Find someone…" value="${esc(q.filter)}" style="margin-bottom:10px" autocomplete="off">
+      <div id="quickList">${list.map(f => `<div class="list-row" style="cursor:default">${avatar(f, 'sm')}
+        <div class="grow" style="min-width:0"><div class="name" style="font-size:15px">${esc(f.name)}</div><div class="sub">${f.$.planPast ? '📅 ' + esc(f.nextplan || 'plan') : tierBadge(f)}</div></div>
+        <div class="row" style="gap:4px">${['message', 'call', 'video', 'meet'].map(t => `<button class="act" style="padding:7px 6px" data-act="quick-tap" data-type="${t}" data-row="${f._row}" aria-label="${t}"><span class="e">${TYPE_EMOJI[t]}</span></button>`).join('')}</div></div>`).join('')}</div>
+      <button class="btn block" style="margin-top:6px" data-act="add">🌱 Add someone new</button>`;
+  }
+  function quickPreview() {
+    const q = S.quick;
+    if (!q || !q.parsed.length) return q && q.text.trim() ? '<p class="small muted" style="margin:8px 4px">No friends’ names spotted yet.</p>' : '';
+    return `<div class="tag-edit" style="margin:10px 0">${q.parsed.map((e, i) => {
+      const f = e.cands[e.pick];
+      return `<span class="chip" style="padding-right:6px">
+        <button data-act="ql-type" data-i="${i}" title="Change type">${TYPE_EMOJI[e.type]}</button>
+        <button data-act="ql-who" data-i="${i}" title="${e.cands.length > 1 ? 'Tap for the other ' + esc(f.name.split(' ')[0]) : ''}">${esc(f.name)}${e.cands.length > 1 ? ' ⇄' : ''}</button>
+        <button class="muted small" data-act="ql-date" data-i="${i}" title="Change day">${dayLabel(e.date)}</button>
+        <button class="x" data-act="ql-remove" data-i="${i}" aria-label="Remove">✕</button></span>`;
+    }).join('')}</div>
+    <button class="btn primary block" data-act="ql-save">Log ${plural(q.parsed.length, 'catch-up')}</button>
+    <p class="small muted" style="margin:6px 4px 0">Tap the emoji to change the type, or the day to change the date. ⇄ means there’s more than one friend with that name.</p>`;
+  }
+
+  function sheetAdd() {
+    const proxOpts = [1, 2, 3, 4, 5, 6].map(p => `<option value="${p}">${p} · ${esc(proxRule(p).geography || 'Proximity ' + p)}</option>`).join('');
+    return `<div class="sheet-head"><div style="font-size:40px">🌱</div><div class="grow"><h2>Add a friend</h2><div class="sub">Saved as a new row in your sheet</div></div></div>
+      <label class="field"><span>Name *</span><input class="input" id="addName" autocomplete="off"></label>
+      <div class="field"><span>Tier</span><div class="tier-pick">${[1, 2, 3, 4, 5, 6].map(t => `<button data-act="add-tier" data-v="${t}" class="${S.sheet.tier === t ? 'on' : ''}" style="${S.sheet.tier === t ? 'background:' + tierColor(t) : ''}">${t}</button>`).join('')}</div>
+        <div class="small muted" style="margin:6px 4px 0">1 = closest. ${esc(tierRule(1).label || '')}</div></div>
+      <label class="field"><span>How far away</span><select class="input" id="addProx"><option value="">–</option>${proxOpts}</select></label>
+      <label class="field"><span>How you met</span><input class="input" id="addMeeting" placeholder="Uni, work, climbing…"></label>
+      <label class="field"><span>Tags (comma separated)</span><input class="input" id="addTags" list="dl-addtags"></label>
+      <datalist id="dl-addtags">${allValues('tags').map(v => `<option value="${esc(v.label)}">`).join('')}</datalist>
+      <label class="field"><span>Place tags</span><input class="input" id="addPlaces" placeholder="London, Bristol…"></label>
+      <label class="field"><span>Birthday</span><input class="input" type="date" id="addBday"></label>
+      <label class="field"><span>Phone</span><input class="input" id="addPhone" type="tel"></label>
+      <label class="field"><span>Address</span><textarea class="input" id="addAddress"></textarea></label>
+      <button class="btn primary block" data-act="add-save">Add friend 🎉</button>`;
+  }
+
+  function sheetBrowse() {
+    const section = (title, key, items, hint) => items.length ? `<div class="box"><h3>${title}</h3>
+      <div class="tag-edit">${items.map(v => `<button class="chip tiny" data-act="search-for" data-v="${esc(key + ':' + (/\s/.test(v.label) ? '"' + v.label + '"' : v.label))}">${esc(v.label)} <span class="n">${v.n}</span></button>`).join('')}</div>
+      ${hint ? `<div class="small muted" style="margin-top:8px">Search with <code>${hint}</code></div>` : ''}</div>` : '';
+    const tiers = [1, 2, 3, 4, 5, 6].map(t => ({ label: String(t), n: S.friends.filter(f => f.$.tier === t).length })).filter(x => x.n);
+    const prox = [1, 2, 3, 4, 5, 6].map(p => ({ label: String(p), n: S.friends.filter(f => f.$.prox === p).length, geo: proxRule(p).geography })).filter(x => x.n);
+    return `<div class="sheet-head"><div style="font-size:40px">🏷️</div><div class="grow"><h2>Tags & search terms</h2><div class="sub">Tap any of these to search</div></div></div>
+      ${section('✨ Tags', 'tag', allValues('tags'), 'tag:climbing')}
+      ${section('📍 Places', 'place', allValues('placetags'), 'place:london')}
+      ${section('🤝 How you met', 'met', allValues('meeting', single), 'met:uni')}
+      ${section('🎁 Gift effort', 'gift', allValues('gifteffort', single), 'gift:big')}
+      <div class="box"><h3>💎 Tiers</h3><div class="tag-edit">${tiers.map(t => `<button class="chip tiny" data-act="search-for" data-v="tier:${t.label}"><span class="tier-dot" style="background:${tierColor(+t.label)}"></span>Tier ${t.label}${tierRule(+t.label).label ? ' · ' + esc(tierRule(+t.label).label) : ''} <span class="n">${t.n}</span></button>`).join('')}</div></div>
+      <div class="box"><h3>🧭 Distance</h3><div class="tag-edit">${prox.map(p => `<button class="chip tiny" data-act="search-for" data-v="prox:${p.label}">${p.label} · ${esc(p.geo || '')} <span class="n">${p.n}</span></button>`).join('')}</div></div>
+      <div class="box help"><h3>🔎 Search tips</h3>
+        <p>Type any word to search everything: names, notes, addresses, gift ideas.</p>
+        <table>
+          <tr><td><code>tag:climbing</code></td><td>has that tag</td></tr>
+          <tr><td><code>place:bristol</code></td><td>place tag</td></tr>
+          <tr><td><code>tier:1</code></td><td>tier 1 to 6</td></tr>
+          <tr><td><code>prox:5</code></td><td>distance band</td></tr>
+          <tr><td><code>met:uni</code></td><td>how you met</td></tr>
+          <tr><td><code>gift:big</code></td><td>gift effort</td></tr>
+          <tr><td><code>is:due</code></td><td>overdue a message</td></tr>
+          <tr><td><code>is:book</code></td><td>overdue a meet-up</td></tr>
+          <tr><td><code>is:booked</code></td><td>has a plan</td></tr>
+          <tr><td><code>is:christmas</code></td><td>on the Christmas list</td></tr>
+          <tr><td><code>is:ideas</code></td><td>has gift ideas</td></tr>
+          <tr><td><code>is:untiered</code></td><td>no tier yet</td></tr>
+        </table>
+        <p style="margin-top:8px">Mix them: <code>tag:uni place:london</code>. Use quotes for spaces: <code>tag:"board games"</code></p></div>`;
+  }
+
+  function sheetBases() {
+    const bases = S.prefs.bases || [];
+    return `<div class="sheet-head"><div style="font-size:40px">🏠</div><div class="grow"><h2>Where you live</h2><div class="sub">Distances follow you when you move</div></div></div>
+      <div class="box">${bases.length ? bases.map(b => `<div class="row" style="padding:6px 0">
+          <button class="chip ${b.name === S.prefs.current ? 'on' : ''} grow" style="justify-content:flex-start" data-act="base-pick" data-v="${esc(b.name)}">${b.name === S.prefs.current ? '✓ ' : ''}${esc(b.name)} <span class="n">${esc(b.query || '')}</span></button>
+          <button class="btn" style="padding:8px 12px" data-act="base-remove" data-v="${esc(b.name)}" aria-label="Remove ${esc(b.name)}">✕</button></div>`).join('')
+        : '<p class="small muted" style="margin:0">No home bases yet. Add where you live (and anywhere you split your time).</p>'}
+        ${bases.length ? `<button class="chip" style="margin-top:6px" data-act="base-pick" data-v="">${S.prefs.current ? '' : '✓ '}Not set: use the distances in my sheet</button>` : ''}</div>
+      <div class="box"><h3>➕ Add a home base</h3>
+        <label class="field"><span>Name</span><input class="input" id="baseName" placeholder="London, Bath, Mum’s…"></label>
+        <label class="field"><span>Address or postcode</span><input class="input" id="baseQuery" placeholder="E8 1AA"></label>
+        <button class="btn primary block" data-act="base-add">Add & live here</button></div>
+      <div class="box"><div class="row"><div class="grow"><b>Work out distances automatically</b>
+        <div class="small muted">Uses each friend’s address (or place tag) and your current home base to pick their distance band. Friends without a known location keep the Proximity Score from your sheet.</div></div>
+        <button class="switch ${S.prefs.autoDistance ? 'on' : ''}" data-act="auto-distance"></button></div>
+        <table class="small" style="width:100%;margin-top:10px;border-collapse:collapse">
+          ${[[6, 'under 1.5 km'], [5, '1.5–8 km'], [4, '8–30 km (place tags max out here)'], [3, '30–400 km'], [2, 'over 400 km'], [1, 'another country']].map(([b, d]) =>
+            `<tr><td style="padding:4px 0">${b} · ${esc(proxRule(b).geography)}</td><td class="muted" style="text-align:right">${d}</td></tr>`).join('')}
+        </table></div>`;
+  }
+
+  function sheetInvite() {
+    const st = S.sheet;
+    const keys = placeKeys();
+    if (!st.place) st.place = currentBase() ? 'base:' + currentBase().name : (keys[0] ? keys[0].key : 'all:');
+    const list = inviteCandidates(st.place, st.tag);
+    if (!st.picked) st.picked = new Set(list.slice(0, st.size).map(f => f._row));
+    const foodish = /dinner|lunch|brunch|bbq|party|food|picnic/i.test(st.what);
+    const tags = allValues('tags').slice(0, 30);
+    return `<div class="sheet-head"><div style="font-size:40px">💌</div><div class="grow"><h2>Who to invite</h2><div class="sub">Overdue friends first, closest tiers first</div></div></div>
+      <label class="field"><span>Where</span><select class="input" id="invPlace">
+        ${keys.map(p => `<option value="${esc(p.key)}" ${st.place === p.key ? 'selected' : ''}>${p.base ? '🏠' : '📍'} ${esc(p.label)}</option>`).join('')}
+        <option value="all:" ${st.place === 'all:' ? 'selected' : ''}>🌍 Anywhere</option></select></label>
+      <div class="field"><span>What</span><div class="scroll-x">${['Coffee', 'Drinks', 'Dinner', 'Party', 'Walk', 'Day out'].map(w => `<button class="chip ${st.what === w ? 'on' : ''}" data-act="inv-what" data-v="${w}">${w}</button>`).join('')}</div></div>
+      <div class="row" style="gap:10px">
+        <label class="field grow"><span>How many</span><select class="input" id="invSize">${[2, 4, 6, 10, 20].map(n => `<option ${st.size === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="field grow"><span>Only people tagged</span><select class="input" id="invTag"><option value="">Anyone</option>${tags.map(t => `<option ${st.tag === t.label ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}</select></label>
+      </div>
+      <div class="section-title" style="margin-top:4px">${st.picked.size} picked <span class="count">of ${plural(list.length, 'suggestion')}</span></div>
+      ${list.length ? list.map(f => {
+        const on = st.picked.has(f._row);
+        const food = [f.allergydietaryrequirements && '⚠️ ' + esc(f.allergydietaryrequirements), foodish && f.dislikes && '👎 ' + esc(f.dislikes), f.likes && '❤️ ' + esc(f.likes)].filter(Boolean);
+        return `<div class="list-row" data-act="inv-toggle" data-row="${f._row}" style="${on ? 'outline:2px solid var(--accent)' : 'opacity:.75'}">
+          <div style="font-size:22px">${on ? '✅' : '⬜'}</div>${avatar(f, 'sm')}
+          <div class="grow"><div class="name" style="font-size:16px">${esc(f.name)}</div>
+            <div class="sub">${tierBadge(f)} · ${f.$.dSeenEff == null ? 'not seen yet' : 'seen ' + ago(f.$.dSeen ?? f.$.dSeenEff)}</div>
+            ${food.length ? `<div class="small muted">${food.join(' · ')}</div>` : ''}</div></div>`;
+      }).join('') : emptyState('🌈', 'Nobody to suggest', 'Everyone here is booked, recently invited or up to date.')}
+      <div class="row" style="position:sticky;bottom:-28px;background:var(--bg);padding:12px 0">
+        <button class="btn grow" data-act="inv-copy">📋 Copy names</button>
+        <button class="btn primary grow" data-act="inv-done" ${st.picked.size ? '' : 'disabled'}>💌 Mark ${st.picked.size} invited</button></div>`;
+  }
+
+  function sheetSettings() {
+    const rows = [1, 2, 3, 4, 5, 6].map(t => {
+      const tr = tierRule(t);
+      return `<tr><td><span class="tier-dot" style="background:${tierColor(t)}"></span> ${t}${tr.label ? ' · ' + esc(tr.label) : ''}</td><td>${every(tr.contactGoal)}</td><td>× ${tr.seeMultiplier}</td></tr>`;
+    }).join('');
+    const prox = [1, 2, 3, 4, 5, 6].map(p => `<tr><td>${p} · ${esc(proxRule(p).geography)}</td><td>${every(proxRule(p).inviteGoal)}</td></tr>`).join('');
+    return `<div class="sheet-head"><div style="font-size:40px">⚙️</div><div class="grow"><h2>Settings</h2></div></div>
+      <div class="box">
+        <div class="row"><div class="grow"><b>🎮 Game bits</b><div class="small muted">XP, levels, streaks, quests and badges. Your friendship score stays either way.</div></div>
+          <button class="switch ${gameOn() ? 'on' : ''}" data-act="game-toggle"></button></div>
+        <div class="row" style="margin-top:12px"><div class="grow"><b>🤖 Assume plans happened</b><div class="small muted">${AUTO_CONFIRM_DAYS} days after a plan’s date it’s logged as a catch-up. Today shows them so you can say it didn’t happen.</div></div>
+          <button class="switch ${S.prefs.autoConfirm !== false ? 'on' : ''}" data-act="auto-toggle"></button></div></div>
+      <button class="btn block" style="margin-bottom:12px" data-act="progress">🏆 Progress, badges & reliability</button>
+      <button class="btn block" style="margin-bottom:12px" data-act="bases">🏠 Home bases & distances</button>
+      <a class="btn block" style="margin-bottom:12px" href="${esc(S.data.sheetUrl)}" target="_blank" rel="noopener">📄 Open my spreadsheet</a>
+      <div class="box help"><h3>💗 How health works</h3>
+        <p><b>🔋 Health is a friendship battery.</b> Every catch-up tops it up and it slowly drains, so seeing someone often counts for more than seeing them once.</p>
+        <table><tr><th>Catch-up</th><th>Adds</th><th>On its own, fills up to</th></tr>
+          <tr><td>🤝 In person</td><td>${BATTERY.points.meet}</td><td>100%</td></tr>
+          <tr><td>🎥 Video</td><td>${BATTERY.points.video}</td><td>${BATTERY.caps.video}% (${BATTERY.capsFar.video}% if far away)</td></tr>
+          <tr><td>📞 Call</td><td>${BATTERY.points.call}</td><td>${BATTERY.caps.call}% (${BATTERY.capsFar.call}% if far away)</td></tr>
+          <tr><td>💬 Message, 📥 they got in touch</td><td>${BATTERY.points.message}</td><td>${BATTERY.caps.message}%</td></tr></table>
+        <p style="margin-top:8px"><b>Together:</b> calls, video and messages top up whatever in-person time hasn’t filled. A call doesn’t replace seeing someone, but it keeps things warm.</p>
+        <p><b>Draining:</b> in-person points halve over the “see” aim (distance band’s invite goal × tier multiplier), messages over the tier’s contact goal, calls and video in between.</p>
+        <p><b>Plans:</b> a plan in the diary keeps the battery at ${PLAN_FLOOR}%+, whoever organised it. After you mark someone 💌 invited, they’re left off the “to see” list for ${INVITE_SNOOZE} days.</p>
+        <table><tr><th>Tier</th><th>Contact</th><th>See multiplier</th></tr>${rows}</table>
+        <table style="margin-top:10px"><tr><th>Distance</th><th>Invite goal</th></tr>${prox}</table>
+        <p class="small muted" style="margin-top:8px">Change these numbers in your Rules sheet. Add a “See Multiplier” column there to tune the multipliers.</p></div>
+      <button class="btn block" data-act="clear-cache">🧹 Clear saved data on this device</button>
+      <p class="small muted" style="text-align:center;margin-top:14px">App version ${CLIENT_VERSION} · sheet code ${esc(S.data.version || 'old')}
+        ${S.data.timings ? ` · last load read your sheet in ${(S.data.timings.total / 1000).toFixed(1)} s` : ''}</p>`;
+  }
+
+  /* ───────────── Map ───────────── */
+  function friendPlace(f) {
+    const options = [postalAddress(f), ...addresses(f)].filter(Boolean).map(q => ({ q, fromTag: false }))
+      .concat(splitTags(f.placetags).map(q => ({ q, fromTag: true })));
+    for (const o of options) {
+      const g = S.geo[o.q.toLowerCase()];
+      if (g) return { ...o, ...g };
+      if (g === undefined) return { ...o, missing: true };
+    }
+    return null;
+  }
+  function distanceKm(a, b) {
+    const R = 6371, rad = x => x * Math.PI / 180;
+    const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  function mapStatus(text) { const el = $('#mapStatus'); el.hidden = !text; el.textContent = text || ''; }
+
+  // The map library is only fetched when you first open the map, so it can never hold up the app.
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve();
+    if (S.leaflet) return S.leaflet;
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    document.head.appendChild(css);
+    S.leaflet = new Promise((resolve, reject) => {
+      const js = document.createElement('script');
+      js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+      js.onload = resolve;
+      js.onerror = () => { S.leaflet = null; reject(new Error('blocked')); };
+      document.head.appendChild(js);
+      setTimeout(() => reject(new Error('timeout')), 15000);
+    });
+    return S.leaflet;
+  }
+
+  function renderMap() {
+    if (!window.L) {
+      mapStatus('🗺️ Loading the map…');
+      loadLeaflet().then(() => { mapStatus(''); if (S.tab === 'map') renderMap(); })
+        .catch(() => mapStatus('The map couldn’t load (it may be blocked on this network). Everything else still works.'));
+      return;
+    }
+    if (!S.map) {
+      S.map = L.map('map', { zoomControl: false, attributionControl: true }).setView([54.2, -2.5], 5);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '© OpenStreetMap contributors'
+      }).addTo(S.map);
+      S.layer = L.layerGroup().addTo(S.map);
+      // Leaflet keeps clicks inside popups to itself, so wire the names up directly.
+      S.map.on('popupopen', e => e.popup.getElement().querySelectorAll('[data-open]').forEach(el => {
+        el.onclick = () => openSheet('friend', { row: +el.dataset.open });
+      }));
+    }
+    setTimeout(() => S.map.invalidateSize(), 50);
+    drawPins();
+    geocodeMissing();
+  }
+
+  function drawPins(fit) {
+    if (!S.map) return;
+    S.layer.clearLayers();
+    const groups = {};
+    S.friends.forEach(f => {
+      const p = friendPlace(f);
+      f.$.dist = null;
+      if (!p || p.missing) return;
+      if (S.here) f.$.dist = distanceKm(S.here, p);
+      const k = p.lat.toFixed(4) + ',' + p.lng.toFixed(4);
+      (groups[k] = groups[k] || { p, list: [] }).list.push(f);
+    });
+    const pts = [];
+    Object.values(groups).forEach(({ p, list }) => {
+      const one = list.length === 1;
+      const size = one ? 38 : 40;
+      const html = one
+        ? `<div class="pin" style="width:${size}px;height:${size}px;background:${tierColor(list[0].$.tier)}">${esc(initials(list[0].name))}</div>`
+        : `<div class="pin group" style="width:${size}px;height:${size}px">${list.length}</div>`;
+      const icon = L.divIcon({ className: '', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+      const popup = `<div style="font-weight:800;margin-bottom:4px">📍 ${esc(p.q)}</div>` + list.sort(SORTS.tier[1]).map(f =>
+        `<div class="popup-row" data-open="${f._row}"><span class="tier-dot" style="background:${tierColor(f.$.tier)}"></span>${esc(f.name)}</div>`).join('');
+      L.marker([p.lat, p.lng], { icon }).bindPopup(popup).addTo(S.layer);
+      pts.push([p.lat, p.lng]);
+    });
+    (S.prefs.bases || []).filter(b => b.lat != null).forEach(b => {
+      L.marker([b.lat, b.lng], { icon: L.divIcon({ className: '', html: `<div class="pin me" style="width:40px;height:40px;${b.name === S.prefs.current ? '' : 'opacity:.6'}">🏠</div>`, iconSize: [40, 40], iconAnchor: [20, 20] }) })
+        .bindPopup(`<b>🏠 ${esc(b.name)}</b>${b.name === S.prefs.current ? '<br>Living here now' : ''}`).addTo(S.layer);
+    });
+    if (S.here) {
+      L.circle([S.here.lat, S.here.lng], { radius: +$('#radius').value * 1000, color: '#ff6b4a', weight: 2, fillOpacity: .08 }).addTo(S.layer);
+      L.marker([S.here.lat, S.here.lng], { icon: L.divIcon({ className: '', html: '<div class="pin me" style="width:40px;height:40px">⭐</div>', iconSize: [40, 40], iconAnchor: [20, 20] }) }).addTo(S.layer);
+    }
+    renderNearby();
+    S.map.invalidateSize();
+    if (fit === 'here' && S.here) S.map.fitBounds(L.latLng(S.here.lat, S.here.lng).toBounds(+$('#radius').value * 2200));
+    else if (fit && pts.length) S.map.fitBounds(pts, { padding: [40, 40], maxZoom: 12 });
+  }
+
+  function renderNearby() {
+    const box = $('#nearby');
+    if (!S.here) { box.hidden = true; return; }
+    const r = +$('#radius').value;
+    const list = S.friends.filter(f => f.$.dist != null && f.$.dist <= r).sort((a, b) => a.$.dist - b.$.dist);
+    box.hidden = false;
+    $('#nearbyList').innerHTML = `<div class="row" style="margin-bottom:8px"><div class="grow"><h3 style="font-size:16px">Near ${esc(S.here.label)}</h3>
+      <div class="small muted">${plural(list.length, 'friend')} within ${r} km. Maybe say you’re around?</div></div>
+      <button class="btn" style="padding:8px 12px" data-act="clear-here">✕</button></div>` +
+      (list.length ? list.map(card).join('') : '<p class="muted small">Nobody nearby. Try a bigger distance.</p>');
+  }
+
+  async function geocodeMissing() {
+    if (S.geocoding) return;
+    S.geocoding = true;
+    let first = true;
+    try {
+      for (let round = 0; round < 20; round++) {
+        const missing = [...new Set(S.friends.map(friendPlace).filter(p => p && p.missing).map(p => p.q))];
+        if (!missing.length) break;
+        mapStatus(`📍 Finding ${plural(missing.length, 'place')}…`);
+        const batch = missing.slice(0, 20);
+        const res = JSON.parse(await api('geocode', JSON.stringify(batch)));
+        batch.forEach(q => { const k = q.toLowerCase().trim(); if (!(k in res)) res[k] = null; });
+        Object.assign(S.geo, res);
+        recomputeAll(); render();
+        drawPins(first); first = false;
+      }
+    } catch (e) { toast('⚠️ Map lookup: ' + e.message); }
+    mapStatus('');
+    S.geocoding = false;
+    if (first) drawPins(true);
+  }
+
+  async function goToPlace(q) {
+    q = q.trim();
+    if (!q) return;
+    mapStatus('🔎 Looking up ' + q + '…');
+    try {
+      const res = JSON.parse(await api('geocode', JSON.stringify([q])));
+      const g = res[q.toLowerCase()];
+      Object.assign(S.geo, res);
+      if (!g) { toast('Couldn’t find “' + q + '”'); return; }
+      S.here = { ...g, label: q };
+      drawPins('here');
+    } catch (e) { toast('⚠️ ' + e.message); }
+    finally { mapStatus(''); }
+  }
+
+  function locateMe() {
+    if (!navigator.geolocation) return toast('Location isn’t available here. Type a place instead.');
+    mapStatus('📍 Finding you…');
+    navigator.geolocation.getCurrentPosition(pos => {
+      mapStatus('');
+      S.here = { lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'you' };
+      drawPins('here');
+    }, () => {
+      mapStatus('');
+      toast('Google’s app frame blocked location. Type where you are instead 👆');
+      $('#placeInput').focus();
+    }, { timeout: 10000 });
+  }
+
+  /* ───────────── Fun ───────────── */
+  function toast(text, opts = {}) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = `<span>${esc(text)}</span>${opts.undo ? '<button>Undo</button>' : ''}`;
+    if (opts.undo) el.querySelector('button').onclick = () => { el.remove(); opts.undo(); };
+    $('#toast').appendChild(el);
+    setTimeout(() => el.remove(), opts.undo ? 6000 : 3800);
+  }
+  function confetti() {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const bits = ['🎉', '✨', '💖', '🥳', '🌟', '🎈'];
+    for (let i = 0; i < 18; i++) {
+      const s = document.createElement('span');
+      s.className = 'confetti';
+      s.textContent = bits[i % bits.length];
+      s.style.left = '50vw'; s.style.top = '55vh';
+      s.style.setProperty('--dx', (Math.random() * 300 - 150) + 'px');
+      s.style.setProperty('--dy', (-Math.random() * 380 - 60) + 'px');
+      s.style.setProperty('--r', (Math.random() * 540 - 270) + 'deg');
+      document.body.appendChild(s);
+      setTimeout(() => s.remove(), 1200);
+    }
+  }
+
+  /* ───────────── Events ───────────── */
+  const rowOf = el => S.byRow[el.dataset.row];
+
+  document.addEventListener('click', e => {
+    const tab = e.target.closest('[data-tab]');
+    if (tab) { S.tab = tab.dataset.tab; if (S.sheet) closeSheet(); window.scrollTo(0, 0); render(); return; }
+    const a = e.target.closest('[data-act]');
+    if (!a) {
+      const open = e.target.closest('[data-open]');
+      if (open && !e.target.closest('a,input,select,textarea')) openSheet('friend', { row: +open.dataset.open });
+      return;
+    }
+    if (a.tagName === 'A' && a.getAttribute('href') === '#') e.preventDefault();
+    const f = a.dataset.row ? rowOf(a) : null;
+    const v = a.dataset.v;
+    switch (a.dataset.act) {
+      case 'refresh': refresh(); break;
+      case 'retry': $('#view').innerHTML = '<div class="loading"><div class="big">🫶</div>Trying again…<div class="small" id="loadHint"></div></div>'; refresh(); break;
+      case 'snooze': {
+        const evs = addEvents([{ name: f.name, type: 'snooze' }]);
+        toast(`💤 ${f.name.split(' ')[0]} will come back in ${SNOOZE_DAYS} days`, { undo: () => removeEventsLocal(evs) });
+        break;
+      }
+      case 'more-checks': S.showAllChecks = true; render(); break;
+      case 'more-due': S.showAllDue = true; render(); break;
+      case 'game-toggle': savePrefs({ game: !gameOn() }); break;
+      case 'quick': openSheet('quick'); setTimeout(() => { const t = $('#quickText'); t && t.focus(); }, 300); break;
+      case 'quick-day': S.quick.day = v; renderSheetKeepingInputs(); break;
+      case 'quick-tap': {
+        const day = S.quick ? S.quick.day : iso(today());
+        a.innerHTML = '<span class="e">✓</span>'; a.disabled = true;
+        logMany([{ f, type: a.dataset.type, date: day }], `${TYPE_EMOJI[a.dataset.type]} ${f.name.split(' ')[0]} ·`);
+        break;
+      }
+      case 'ql-type': { const e = S.quick.parsed[+a.dataset.i]; e.type = TYPE_ORDER[(TYPE_ORDER.indexOf(e.type) + 1) % TYPE_ORDER.length]; $('#quickPreview').innerHTML = quickPreview(); break; }
+      case 'ql-who': { const e = S.quick.parsed[+a.dataset.i]; e.pick = (e.pick + 1) % e.cands.length; $('#quickPreview').innerHTML = quickPreview(); break; }
+      case 'ql-date': { const e = S.quick.parsed[+a.dataset.i]; const n = daysBetween(parseDate(e.date), today()); e.date = iso(addDays(today(), -((n + 1) % 7))); $('#quickPreview').innerHTML = quickPreview(); break; }
+      case 'ql-remove': S.quick.parsed.splice(+a.dataset.i, 1); $('#quickPreview').innerHTML = quickPreview(); break;
+      case 'ql-save': {
+        const entries = S.quick.parsed.map(e => ({ f: e.cands[e.pick], type: e.type, date: e.date }));
+        S.quick = null; closeSheet();
+        logMany(entries);
+        break;
+      }
+      case 'plan-org': S.sheet.org = S.sheet.org === v ? '' : v; renderSheetKeepingInputs(); break;
+      case 'auto-toggle': savePrefs({ autoConfirm: S.prefs.autoConfirm === false }); break;
+      case 'auto-ok': ackAuto(v); render(); break;
+      case 'auto-they': case 'auto-me': {
+        const ev = S.log.find(e => e.id === v);
+        if (f && ev) didntHappen(f, ev, a.dataset.act === 'auto-they' ? 'them' : 'me');
+        break;
+      }
+      case 'bases': openSheet('bases'); break;
+      case 'base-pick': savePrefs({ current: v }, v ? `🏠 Living in ${v}. Distances updated` : 'Using the distances in your sheet'); break;
+      case 'base-remove': savePrefs({ bases: S.prefs.bases.filter(b => b.name !== v), current: S.prefs.current === v ? '' : S.prefs.current }); break;
+      case 'auto-distance': savePrefs({ autoDistance: !S.prefs.autoDistance }); break;
+      case 'base-add': addBase(); break;
+      case 'toggle-place': S.openPlaces.has(v) ? S.openPlaces.delete(v) : S.openPlaces.add(v); render(); break;
+      case 'invite': openSheet('invite', { place: v, size: 6, tag: '', what: 'Dinner', picked: null }); break;
+      case 'inv-what': S.sheet.what = v; renderSheet(); break;
+      case 'inv-toggle': S.sheet.picked.has(+a.dataset.row) ? S.sheet.picked.delete(+a.dataset.row) : S.sheet.picked.add(+a.dataset.row); rerenderInvite(); break;
+      case 'inv-copy': copy([...S.sheet.picked].map(r => S.byRow[r] && S.byRow[r].name).filter(Boolean).join(', '), 'Names copied 📋'); break;
+      case 'inv-done': markInvited([...S.sheet.picked].map(r => S.byRow[r]).filter(Boolean)); break;
+      case 'settings': openSheet('settings'); break;
+      case 'add': openSheet('add', { tier: null }); setTimeout(() => $('#addName') && $('#addName').focus(), 300); break;
+      case 'close': closeSheet(); break;
+      case 'browse': openSheet('browse'); break;
+      case 'log': if (f) logInteraction(f, a.dataset.type); break;
+      case 'log-past': if (f && $('#pastDate').value) logInteraction(f, $('#pastType').value, $('#pastDate').value); break;
+      case 'book': if (f) openSheet('book', { row: f._row }); break;
+      case 'plan-idea': $('#planWhat').value = v; break;
+      case 'plan-save': {
+        const what = $('#planWhat').value.trim() || 'Plans', when = $('#planDate').value;
+        const sheetState = S.sheet;
+        closeSheet(); S.sheet = null; vibrate();
+        const org = sheetState && sheetState.org;
+        const evs = [{ name: f.name, type: 'booked', note: org ? 'org:' + org : '' }];
+        if (org === 'them') evs.push({ name: f.name, type: 'invited_me' });
+        if (f.$.rel.pendingInvite) evs.push({ name: f.name, type: 'invite_yes' });
+        save(f, { nextplan: what, nextplandate: when }).then(() => {
+          addEvents(evs);
+          toast(`📅 Plan: ${what}${when ? ' · ' + fmtDate(parseDate(when)) : ''}${xpText(XP.booked)}`);
+        }).catch(() => {});
+        break;
+      }
+      case 'plan-yes': {
+        const when = f.$.planDate && f.$.planDays <= 0 ? iso(f.$.planDate) : iso(today());
+        logInteraction(f, /video|call|zoom|facetime|teams/i.test(f.nextplan || '') ? 'video' : 'meet', when, [{ name: f.name, type: 'happened', date: when }]);
+        if (f.$.hasPlan) save(f, { nextplan: '', nextplandate: '' }).catch(() => {});
+        break;
+      }
+      case 'plan-they': case 'plan-me': {
+        const they = a.dataset.act === 'plan-they';
+        save(f, { nextplan: '', nextplandate: '' }).then(prev => {
+          const evs = addEvents([{ name: f.name, type: they ? 'they_cancelled' : 'i_cancelled' }]);
+          toast(they ? `Noted: ${f.name.split(' ')[0]} cancelled` : 'Plan cleared', { undo: () => { save(f, prev).catch(() => {}); removeEventsLocal(evs); } });
+        }).catch(() => {});
+        break;
+      }
+      case 'inv-reply': {
+        if (v === 'yes') { openSheet('book', { row: f._row }); break; }
+        const evs = addEvents([{ name: f.name, type: v === 'declined' ? 'invite_declined' : 'invite_noreply' }]);
+        toast(v === 'declined' ? 'Noted: they said no this time' : 'Noted: no reply', { undo: () => removeEventsLocal(evs) });
+        break;
+      }
+      case 'tier-move': {
+        const from = f.$.tier;
+        save(f, { tier: v }).then(prev => {
+          const evs = addEvents([{ name: f.name, type: +v > from ? 'tier_down' : 'tier_up', note: `${from}→${v}` }]);
+          toast(`🎚️ ${f.name.split(' ')[0]} is now tier ${v}`, { undo: () => { save(f, prev).catch(() => {}); removeEventsLocal(evs); } });
+        }).catch(() => {});
+        break;
+      }
+      case 'tier-keep': addEvents([{ name: f.name, type: 'tier_keep' }]); toast('👍 Keeping them where they are'); break;
+      case 'progress': openSheet('progress'); break;
+      case 'plan-no': {
+        if (S.sheet && S.sheet.kind === 'book') closeSheet();
+        save(f, { nextplan: '', nextplandate: '' }).then(prev => toast('Plan cleared', { undo: () => save(f, prev) })).catch(() => {});
+        break;
+      }
+      case 'today-filter': S.todayFilter = v; render(); break;
+      case 'tier-filter': S.tiers.has(+v) ? S.tiers.delete(+v) : S.tiers.add(+v); render(); break;
+      case 'status-filter': S.status = S.status === v ? '' : v; render(); break;
+      case 'clear-filters': S.query = ''; S.tiers.clear(); S.status = ''; render(); break;
+      case 'search-for': S.query = v; S.tab = 'friends'; closeSheet(); render(); break;
+      case 'dates-view': S.datesView = v; render(); break;
+      case 'set-tier': save(f, { tier: v }).catch(() => {}); break;
+      case 'toggle-card': save(f, { christmascard: isYes(f.christmascard) ? 'No' : 'Yes' }).catch(() => {}); break;
+      case 'tag-remove': {
+        const key = a.dataset.key, tags = splitTags(f[key]);
+        tags.splice(+a.dataset.i, 1);
+        save(f, { [key]: tags.join(', ') }).catch(() => {});
+        break;
+      }
+      case 'copy': copy(a.dataset.text, 'Address copied 📋'); break;
+      case 'copy-xmas': {
+        const list = S.friends.filter(x => isYes(x.christmascard) || isYes(x.christmasgifteffort)).sort(SORTS.name[1]);
+        copy(list.map(x => [x.name, postalAddress(x) || '(no address)', isYes(x.christmascard) ? 'Card' : '',
+          isYes(x.christmasgifteffort) ? 'Gift: ' + x.christmasgifteffort : '', x.futuregiftideas ? 'Ideas: ' + x.futuregiftideas : ''].filter(Boolean).join('\n')).join('\n\n'),
+          `Copied ${list.length === 1 ? '1 person' : list.length + ' people'} 📋`);
+        break;
+      }
+      case 'go-xmas': S.tab = 'dates'; S.datesView = 'christmas'; window.scrollTo(0, 0); render(); break;
+      case 'copy-addresses': {
+        const list = S.friends.filter(x => isYes(x.christmascard) && postalAddress(x)).sort(SORTS.name[1]);
+        copy(list.map(x => x.name + '\n' + postalAddress(x)).join('\n\n'), `Copied ${plural(list.length, 'address')} 📋`);
+        break;
+      }
+      case 'add-tier': S.sheet.tier = +v; renderSheetKeepingInputs(); break;
+      case 'add-save': submitNewFriend(); break;
+      case 'locate': locateMe(); break;
+      case 'clear-here': S.here = null; drawPins(); break;
+      case 'clear-cache': try { localStorage.removeItem(CACHE_KEY); } catch (err) {} toast('Cleared. Reloading data…'); closeSheet(); refresh(); break;
+    }
+  });
+
+  // Text fields in the friend page save when you leave them.
+  document.addEventListener('change', e => {
+    const el = e.target;
+    if (el.dataset.save) {
+      const f = rowOf(el);
+      if (f && String(f[el.dataset.save] ?? '') !== el.value) save(f, { [el.dataset.save]: el.value }, { quiet: el.tagName !== 'SELECT' }).then(() => toast('✓ Saved')).catch(() => {});
+    } else if (el.id === 'sortSelect') { S.sort = el.value; render(); }
+    else if (['invPlace', 'invSize', 'invTag'].includes(el.id)) {
+      S.sheet.place = $('#invPlace').value; S.sheet.size = +$('#invSize').value; S.sheet.tag = $('#invTag').value;
+      S.sheet.picked = null; renderSheet();
+    }
+    else if (el.id === 'radius') drawPins('here');
+  });
+
+  document.addEventListener('input', e => {
+    if (e.target.id === 'quickText') {
+      S.quick.text = e.target.value;
+      S.quick.parsed = parseQuickLog(e.target.value);
+      $('#quickPreview').innerHTML = quickPreview();
+    } else if (e.target.id === 'quickFilter') {
+      S.quick.filter = e.target.value;
+      const panel = $('#sheetPanel'), top = panel.scrollTop;
+      renderSheetKeepingInputs();
+      panel.scrollTop = top;
+      const el = $('#quickFilter'); el.focus(); el.setSelectionRange(el.value.length, el.value.length);
+    }
+    if (e.target.id === 'searchInput') {
+      S.query = e.target.value;
+      $('#friendList').innerHTML = (() => { const l = filteredFriends(); return l.length ? l.map(card).join('') : emptyState('🔍', 'No matches', 'Try a different word, or tap 🏷️ to see every tag.'); })();
+    }
+  });
+
+  // Remember which friend-page sections are open, so saving a field doesn't fold them away.
+  document.addEventListener('toggle', e => {
+    const d = e.target;
+    // Closing "Your week" keeps it closed until next week.
+    if (d.dataset && d.dataset.week) { try { localStorage.setItem('socialos.weekClosed', d.open ? '' : d.dataset.week); } catch (err) {} }
+    if (d.dataset && d.dataset.box) d.open ? S.openBoxes.add(d.dataset.box) : S.openBoxes.delete(d.dataset.box);
+  }, true);
+
+  // Chart bars: show the week's value on hover, focus or tap.
+  ['pointerover', 'focusin', 'click'].forEach(t => document.addEventListener(t, e => {
+    const bar = e.target.closest && e.target.closest('[data-tip]');
+    const tip = $('#chartTip');
+    if (bar && tip) tip.textContent = bar.dataset.tip;
+  }));
+
+  document.addEventListener('keydown', e => {
+    const el = e.target;
+    if (el.dataset && el.dataset.tagAdd && (e.key === 'Enter' || e.key === ',')) {
+      e.preventDefault();
+      addTag(el);
+    } else if (el.id === 'placeInput' && e.key === 'Enter') { el.blur(); goToPlace(el.value); }
+    else if (e.key === 'Escape' && S.sheet) closeSheet();
+  });
+  // Picking a suggestion from the tag list adds it straight away.
+  document.addEventListener('input', e => {
+    const el = e.target;
+    if (el.dataset && el.dataset.tagAdd && e.inputType === 'insertReplacementText') addTag(el);
+  });
+  document.addEventListener('focusout', e => { const el = e.target; if (el.dataset && el.dataset.tagAdd && el.value.trim()) addTag(el); });
+
+  function addTag(el) {
+    const f = rowOf(el), key = el.dataset.tagAdd, t = el.value.replace(/,/g, '').trim();
+    el.value = '';
+    if (!f || !t) return;
+    const tags = splitTags(f[key]);
+    if (tags.some(x => x.toLowerCase() === t.toLowerCase())) return;
+    save(f, { [key]: [...tags, t].join(', ') }).then(() => { const next = $(`[data-tag-add="${key}"]`); next && next.focus(); }).catch(() => {});
+  }
+
+  function copy(text, msg) {
+    const done = () => toast(msg);
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+    function fallback() {
+      const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+      try { document.execCommand('copy'); done(); } catch (e) { toast('Couldn’t copy'); }
+      t.remove();
+    }
+  }
+
+  function rerenderInvite() { const panel = $('#sheetPanel'), top = panel.scrollTop; renderSheet(); panel.scrollTop = top; }
+
+  async function addBase() {
+    const name = $('#baseName').value.trim(), query = $('#baseQuery').value.trim() || name;
+    if (!name) { toast('Give it a name, like “London”'); return; }
+    const btn = document.querySelector('[data-act="base-add"]');
+    btn.disabled = true; btn.textContent = 'Finding it…';
+    try {
+      const res = JSON.parse(await api('geocode', JSON.stringify([query])));
+      const g = res[query.toLowerCase()];
+      Object.assign(S.geo, res);
+      if (!g) throw new Error(`Couldn’t find “${query}”. Try a postcode.`);
+      const bases = (S.prefs.bases || []).filter(b => b.name !== name).concat([{ name, query, lat: g.lat, lng: g.lng, country: g.country || '' }]);
+      savePrefs({ bases, current: name }, `🏠 Living in ${name}. Distances updated`);
+    } catch (e) { toast('⚠️ ' + e.message); btn.disabled = false; btn.textContent = 'Add & live here'; }
+  }
+
+  function markInvited(list) {
+    if (!list.length) return;
+    const day = iso(today());
+    const updates = list.map(f => {
+      const changes = { lastinvited: day };
+      const last = parseDate(f.lastcontacted);
+      if (!last || last.noYear || iso(last) < day) changes.lastcontacted = day;
+      const prev = {}; Object.keys(changes).forEach(k => { prev[k] = f[k] ?? ''; });
+      Object.assign(f, changes); compute(f);
+      return { f, row: f._row, name: f.name, changes, prev };
+    });
+    closeSheet(); render(); confetti(); vibrate();
+    const send = key => write('updateMany', JSON.stringify(updates.map(u => ({ row: u.row, name: u.name, changes: u[key] }))));
+    const evs = addEvents(list.map(f => ({ name: f.name, type: 'invite', note: f.$.tier ? 't' + f.$.tier : '' })));
+    send('changes').then(() => toast(`💌 Marked ${plural(list.length, 'friend')} as invited${xpText(list.length * XP.invite)}`, {
+      undo: () => { updates.forEach(u => { Object.assign(u.f, u.prev); compute(u.f); }); removeEventsLocal(evs); render(); send('prev').catch(err => toast('⚠️ ' + err.message)); }
+    })).catch(err => { updates.forEach(u => { Object.assign(u.f, u.prev); compute(u.f); }); render(); toast('⚠️ ' + err.message); });
+  }
+
+  function renderSheetKeepingInputs() {
+    const vals = {};
+    document.querySelectorAll('#sheetPanel input[id], #sheetPanel select[id], #sheetPanel textarea[id]').forEach(i => { vals[i.id] = i.value; });
+    renderSheet();
+    Object.entries(vals).forEach(([id, v]) => { const i = $('#' + id); if (i) i.value = v; });
+  }
+
+  function submitNewFriend() {
+    const name = $('#addName').value.trim();
+    if (!name) { toast('A name is needed'); $('#addName').focus(); return; }
+    const fields = {
+      name, tier: S.sheet.tier ? String(S.sheet.tier) : '', proximityscore: $('#addProx').value,
+      meeting: $('#addMeeting').value.trim(), tags: $('#addTags').value.trim(), placetags: $('#addPlaces').value.trim(),
+      birthdaydate: $('#addBday').value, phone: $('#addPhone').value.trim(), address: $('#addAddress').value.trim(),
+      lastcontacted: iso(today())
+    };
+    Object.keys(fields).forEach(k => { if (!fields[k] || (!S.cols[k] && !S.data.extraColumns[k])) delete fields[k]; });
+    const btn = document.querySelector('[data-act="add-save"]');
+    btn.disabled = true; btn.textContent = 'Adding…';
+    write('addFriend', JSON.stringify(fields)).then(r => {
+      closeSheet(); confetti(); toast(`🌱 Added ${name}`);
+      return refresh().then(() => { if (S.byRow[r.row]) openSheet('friend', { row: r.row }); });
+    }).catch(err => { btn.disabled = false; btn.textContent = 'Add friend 🎉'; toast('⚠️ ' + err.message); });
+  }
+
+  // Shown instead of an endless spinner when the first load fails.
+  function showLoadError(message) {
+    $('#view').innerHTML = `<div class="empty"><div class="big">😕</div><h3>Couldn’t load your friends</h3>
+      <div class="box" style="text-align:left;margin:14px 0"><b>Google said:</b> ${esc(message)}</div>
+      <button class="btn primary" data-act="retry">Try again</button>
+      <div class="small" style="text-align:left;margin-top:16px">
+        <p><b>Things to check</b></p>
+        <p>1. In Apps Script, both <b>Code.gs</b> and <b>Index.html</b> have the new code and are saved.</p>
+        <p>2. <b>Deploy → Manage deployments → ✏️ → Version: New version → Deploy</b>.</p>
+        <p>3. In Apps Script, choose <b>checkSetup</b> next to ▶ Run and press Run. The Execution log says what’s wrong.</p></div></div>`;
+  }
+
+  /* ───────────── Start ───────────── */
+  (function init() {
+    window.__started = true;
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) { const d = JSON.parse(cached); if (!d.error) { ingest(d); window.__loaded = true; } }
+    } catch (e) {}
+    render();
+    refresh();
+    // Keep you posted if Google is slow, rather than leaving a silent spinner.
+    setTimeout(() => { if (!S.data && $('#loadHint')) $('#loadHint').textContent = 'Still loading… The first load after an update can take 20–30 seconds while Google starts the app.'; }, 8000);
+    setTimeout(() => { if (!S.data && $('#loadHint')) showLoadError('No reply from Google after a minute. On a phone this is usually because more than one Google account is signed in to Chrome. Try an incognito tab signed in only to the account that owns the spreadsheet.'); }, 60000);
+  })();
+  </script>
+</body>
+</html>
