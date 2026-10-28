@@ -259,7 +259,7 @@
     <button class="icon-btn" data-act="settings" aria-label="Settings"><span>⚙️</span></button>
   </header>
 
-  <main id="view"><div class="loading"><div class="big">🫶</div>Gathering your people…</div></main>
+  <main id="view"><div class="loading"><div class="big">🫶</div>Gathering your people…<div class="small" id="loadHint" style="margin-top:10px;font-weight:600"></div></div></main>
 
   <div id="mapwrap" hidden>
     <div class="map-controls">
@@ -315,6 +315,7 @@
     return loc.fromTag ? Math.min(band, 4) : band; // a place tag like "London" is only city-precise
   }
   const CACHE_KEY = 'socialos.v2';
+  const CLIENT_VERSION = '2026-10-28'; // must match APP_VERSION in Code.gs
 
   /* ───────────── State ───────────── */
   const S = {
@@ -349,15 +350,16 @@
     else if ((m = /^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/.exec(s))) {
       [mo, d] = [m[2] - 1, +m[1]];
       if (m[3]) { y = +m[3]; if (y < 100) y += y > (new Date().getFullYear() % 100) ? 1900 : 2000; }
-    } else if ((m = /(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3})[a-z]*\.?(?:,?\s+(\d{4}))?/i.exec(s)) && MONTHS.includes(m[2].toLowerCase())) {
+    } else if ((m = /(\d{1,2})(?:st|nd|rd|th)?[\s\-\/.]+([a-z]{3})[a-z]*\.?(?:,?[\s\-\/.]+(\d{4}|\d{2}))?/i.exec(s)) && MONTHS.includes(m[2].toLowerCase())) {
       [mo, d, y] = [MONTHS.indexOf(m[2].toLowerCase()), +m[1], m[3] ? +m[3] : null];
-    } else if ((m = /([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?/i.exec(s)) && MONTHS.includes(m[1].toLowerCase())) {
+    } else if ((m = /([a-z]{3})[a-z]*\.?[\s\-\/.]+(\d{1,2})(?:st|nd|rd|th)?(?:,?[\s\-\/.]+(\d{4}|\d{2}))?/i.exec(s)) && MONTHS.includes(m[1].toLowerCase())) {
       [mo, d, y] = [MONTHS.indexOf(m[1].toLowerCase()), +m[2], m[3] ? +m[3] : null];
     } else {
       const t = Date.parse(s);
       if (isNaN(t)) return null;
       const x = new Date(t); x.setHours(0, 0, 0, 0); return x;
     }
+    if (y != null && y < 100) y += y > (new Date().getFullYear() % 100) ? 1900 : 2000;
     const out = new Date(y ?? 2000, mo, d);
     if (isNaN(out)) return null;
     out.noYear = y == null;
@@ -586,6 +588,7 @@
   }
 
   function indexLog() {
+    S.usesReached = S.log.filter(e => e.type === 'reached').length >= 3;
     S.logByName = {};
     S.log.forEach(e => { const k = String(e.name).toLowerCase(); (S.logByName[k] = S.logByName[k] || []).push(e); });
     Object.values(S.logByName).forEach(l => l.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -634,8 +637,7 @@
     if (r.ghosted) why.push(`${r.ghosted} no reply`);
     const flaky = r.attempts >= RELIABILITY_MIN && r.reliability < 0.4;
     // Only judge "one-way" once you're logging when friends get in touch, or everyone would look one-way.
-    const usesReached = S.log.filter(e => e.type === 'reached').length >= 3;
-    const oneWay = usesReached && r.mine90 >= 5 && r.theirs90 === 0 && r.meets90 === 0;
+    const oneWay = S.usesReached && r.mine90 >= 5 && r.theirs90 === 0 && r.meets90 === 0;
     if ((flaky || oneWay) && t < 6) {
       if (oneWay) why.push(`you reached out ${r.mine90}× in 90 days, they didn’t once`);
       return { to: t + 1, dir: 'down', why: why.join(' · ') };
@@ -869,7 +871,7 @@
     d.columns.forEach(c => { S.cols[c.key] = c; });
     S.geo = Object.assign({}, S.geo, d.geo || {});
     S.prefs = Object.assign({ bases: [], current: '', autoDistance: true, autoConfirm: true }, d.prefs || {});
-    S.log = d.log || [];
+    S.log = (d.log || []).map(r => Array.isArray(r) ? { id: r[0], date: r[1], name: r[2], type: r[3], xp: Number(r[4]) || 0, note: r[5] || '' } : r);
     S.weeks = d.weeks || [];
     indexLog();
     S.friends = d.friends.map(compute);
@@ -891,7 +893,10 @@
       autoConfirmPlans();
       if (S.sheet && !(document.activeElement && $('#sheetPanel').contains(document.activeElement))) renderSheet();
       if (S.prefs.current) geocodeMissing();
-    }).catch(err => toast('⚠️ ' + err.message)).finally(() => $('#syncBtn').classList.remove('spinning'));
+    }).catch(err => {
+      if (S.data) toast('⚠️ ' + err.message);
+      else showLoadError(err.message);
+    }).finally(() => $('#syncBtn').classList.remove('spinning'));
   }
 
   // Updates the screen straight away, then saves. Resolves with the old values (for undo).
@@ -1179,6 +1184,8 @@
 
     let h = `<div class="hello"><h2>${greeting()}</h2>
       <button class="chip" style="margin-top:8px" data-act="bases">🏠 ${base ? esc(base.name) : 'Where are you living?'} <span class="n">▾</span></button></div>`;
+    if (S.data.version !== CLIENT_VERSION) h += `<div class="banner" style="background:color-mix(in srgb, var(--bad) 14%, transparent)">
+      <b>⚠️ Code.gs and Index.html don’t match.</b><div class="small">Paste the latest version of both files into Apps Script, then Deploy → Manage deployments → ✏️ → New version.</div></div>`;
     h += scoreRow();
 
     h += `<div class="section-title" style="margin-top:6px">✨ Today’s ${picks.length > 1 ? picks.length + ' people' : 'person'}</div>`;
@@ -1736,7 +1743,9 @@
         <table><tr><th>Tier</th><th>Contact</th><th>See multiplier</th></tr>${rows}</table>
         <table style="margin-top:10px"><tr><th>Distance</th><th>Invite goal</th></tr>${prox}</table>
         <p class="small muted" style="margin-top:8px">Change these numbers in your Rules sheet. Add a “See Multiplier” column there to tune the multipliers.</p></div>
-      <button class="btn block" data-act="clear-cache">🧹 Clear saved data on this device</button>`;
+      <button class="btn block" data-act="clear-cache">🧹 Clear saved data on this device</button>
+      <p class="small muted" style="text-align:center;margin-top:14px">App version ${CLIENT_VERSION} · sheet code ${esc(S.data.version || 'old')}
+        ${S.data.timings ? ` · last load read your sheet in ${(S.data.timings.total / 1000).toFixed(1)} s` : ''}</p>`;
   }
 
   /* ───────────── Map ───────────── */
@@ -1920,6 +1929,7 @@
     const v = a.dataset.v;
     switch (a.dataset.act) {
       case 'refresh': refresh(); break;
+      case 'retry': $('#view').innerHTML = '<div class="loading"><div class="big">🫶</div>Trying again…<div class="small" id="loadHint"></div></div>'; refresh(); break;
       case 'snooze': {
         const evs = addEvents([{ name: f.name, type: 'snooze' }]);
         toast(`💤 ${f.name.split(' ')[0]} will come back in ${SNOOZE_DAYS} days`, { undo: () => removeEventsLocal(evs) });
@@ -2203,6 +2213,18 @@
     }).catch(err => { btn.disabled = false; btn.textContent = 'Add friend 🎉'; toast('⚠️ ' + err.message); });
   }
 
+  // Shown instead of an endless spinner when the first load fails.
+  function showLoadError(message) {
+    $('#view').innerHTML = `<div class="empty"><div class="big">😕</div><h3>Couldn’t load your friends</h3>
+      <div class="box" style="text-align:left;margin:14px 0"><b>Google said:</b> ${esc(message)}</div>
+      <button class="btn primary" data-act="retry">Try again</button>
+      <div class="small" style="text-align:left;margin-top:16px">
+        <p><b>Things to check</b></p>
+        <p>1. In Apps Script, both <b>Code.gs</b> and <b>Index.html</b> have the new code and are saved.</p>
+        <p>2. <b>Deploy → Manage deployments → ✏️ → Version: New version → Deploy</b>.</p>
+        <p>3. In Apps Script, choose <b>checkSetup</b> next to ▶ Run and press Run. The Execution log says what’s wrong.</p></div></div>`;
+  }
+
   /* ───────────── Start ───────────── */
   (function init() {
     try {
@@ -2211,6 +2233,9 @@
     } catch (e) {}
     render();
     refresh();
+    // Keep you posted if Google is slow, rather than leaving a silent spinner.
+    setTimeout(() => { if (!S.data && $('#loadHint')) $('#loadHint').textContent = 'Still loading… The first load after an update can take 20–30 seconds while Google starts the app.'; }, 8000);
+    setTimeout(() => { if (!S.data && $('#loadHint')) showLoadError('No reply from Google after a minute.'); }, 60000);
   })();
   </script>
 </body>

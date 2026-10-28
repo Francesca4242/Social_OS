@@ -6,6 +6,7 @@
  * See README.md for setup and for how the scores work.
  */
 
+const APP_VERSION = '2026-10-28'; // shown in the app's Settings so you can check a deployment updated
 const MAIN_SHEET = 'Main';
 const RULES_SHEET = 'Rules';
 const GEO_SHEET = '_Geo';
@@ -64,28 +65,62 @@ function doGet() {
 /* ───────────────────────── Reading ───────────────────────── */
 
 function getData() {
+  const start = Date.now(), timings = {};
+  const lap = name => { timings[name] = Date.now() - start; };
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     setupIfNeeded_(ss);
     const sheet = mainSheet_(ss);
     const tz = ss.getSpreadsheetTimeZone();
     const read = readFriends_(sheet, tz);
-    return JSON.stringify({
+    lap('friends');
+    const rules = readRules_(ss);
+    lap('rules');
+    const geo = readGeo_(ss), log = readLog_(ss), weeks = readWeeks_(ss);
+    lap('history');
+    const out = {
       friends: read.friends,
       columns: read.cols,
-      rules: readRules_(ss),
-      geo: readGeo_(ss),
+      rules: rules,
+      geo: geo,
       sheetUrl: ss.getUrl() + '#gid=' + sheet.getSheetId(),
       remindersOn: remindersOn_(),
       prefs: getPrefs_(),
-      log: readLog_(ss),
-      weeks: readWeeks_(ss),
+      log: log,
+      weeks: weeks,
       email: Session.getEffectiveUser().getEmail(),
-      extraColumns: EXTRA_COLUMNS
-    });
+      extraColumns: EXTRA_COLUMNS,
+      version: APP_VERSION
+    };
+    lap('total');
+    out.timings = timings;
+    return JSON.stringify(out);
   } catch (e) {
-    return JSON.stringify({ error: e.message || String(e) });
+    return JSON.stringify({ error: e.message || String(e), version: APP_VERSION });
   }
+}
+
+/**
+ * Run this from the Apps Script editor to check the app can read your sheet:
+ * pick "checkSetup" in the function menu at the top, press ▶ Run, then read the Execution log.
+ */
+function checkSetup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  console.log('Social OS version ' + APP_VERSION + ' · spreadsheet "' + ss.getName() + '"');
+  console.log('Sheets: ' + ss.getSheets().map(s => s.getName()).join(', '));
+  const main = ss.getSheetByName(MAIN_SHEET);
+  console.log(main ? '✓ Found the "Main" sheet' : '✗ No sheet called "Main", so the first sheet is used: ' + ss.getSheets()[0].getName());
+  const rules = rulesSheet_(ss);
+  console.log(rules ? '✓ Goals read from the "' + rules.getName() + '" sheet' : '✗ No sheet with a "Contact Goal Days" header, so default goals are used');
+  const json = getData();
+  const d = JSON.parse(json);
+  if (d.error) { console.log('✗ Loading failed: ' + d.error); return; }
+  console.log('✓ Read ' + d.friends.length + ' friends and ' + d.columns.length + ' columns');
+  console.log('Formula columns (read-only in the app): ' + (d.columns.filter(c => c.computed).map(c => c.label).join(', ') || 'none'));
+  console.log('Time taken (ms, cumulative): ' + JSON.stringify(d.timings) + ' · data size ' + Math.round(json.length / 1024) + ' KB');
+  console.log('Tiers set up: ' + Object.keys(d.rules.tiers).join(', ') + ' · distance bands: ' + Object.keys(d.rules.proximity).join(', '));
+  console.log('Reminder emails: ' + (d.remindersOn ? 'on' : 'off'));
+  console.log('If the web app still shows something different, deploy a new version: Deploy → Manage deployments → ✏️ → Version: New version.');
 }
 
 function getPrefs_() {
@@ -153,12 +188,15 @@ function readFriends_(sheet, tz) {
   const cols = headerInfo_(sheet);
   const lastCol = Math.max(sheet.getLastColumn(), 1);
   const lastRow = lastNameRow_(sheet, cols);
-  let values = [], display = [], formulas = [];
+  let values = [], display = [], sample = [], photoFormulas = [];
+  const photoCol = colFor_(cols, 'photo');
   if (lastRow >= 2) {
     const range = sheet.getRange(2, 1, lastRow - 1, lastCol);
     values = range.getValues();
     display = range.getDisplayValues();
-    formulas = range.getFormulas();
+    // Formulas are slow to read, so only sample the first rows (to spot formula columns) and the photo column.
+    sample = sheet.getRange(2, 1, Math.min(10, lastRow - 1), lastCol).getFormulas();
+    if (photoCol) photoFormulas = sheet.getRange(2, photoCol.col, lastRow - 1, 1).getFormulas();
   }
   const headerFormulas = sheet.getRange(1, 1, 1, lastCol).getFormulas()[0];
 
@@ -166,13 +204,13 @@ function readFriends_(sheet, tz) {
   cols.forEach(c => {
     const i = c.col - 1;
     let filled = 0, computed = 0, dates = 0;
-    values.forEach((row, r) => {
-      if (row[i] === '' && !formulas[r][i]) return;
+    sample.forEach((row, r) => {
+      if (values[r][i] === '' && !row[i]) return;
       filled++;
-      if (isComputedFormula_(formulas[r][i])) computed++;
-      if (row[i] instanceof Date) dates++;
+      if (isComputedFormula_(row[i])) computed++;
     });
-    const arrayFormula = /ARRAYFORMULA/i.test(headerFormulas[i] + (formulas.length ? formulas[0][i] : ''));
+    values.forEach(row => { if (row[i] instanceof Date) dates++; });
+    const arrayFormula = /ARRAYFORMULA/i.test(headerFormulas[i] + (sample.length ? sample[0][i] : ''));
     c.computed = arrayFormula || (filled > 0 && computed / filled > 0.5);
     c.date = dates > 0;
   });
@@ -185,7 +223,7 @@ function readFriends_(sheet, tz) {
     cols.forEach(c => {
       const i = c.col - 1;
       const v = row[i];
-      if (c.key === 'photo') f.photo = photoUrl_(v, formulas[r][i], display[r][i]);
+      if (c.key === 'photo') f.photo = photoUrl_(v, (photoFormulas[r] || [])[0], display[r][i]);
       else if (v instanceof Date) f[c.key] = Utilities.formatDate(v, tz, 'yyyy-MM-dd');
       else f[c.key] = display[r][i];
     });
@@ -208,7 +246,12 @@ function photoUrl_(value, formula, display) {
 
 // The rules sheet is whichever sheet has a "Contact Goal Days" header.
 function rulesSheet_(ss) {
+  const hasGoals = s => s && s.getLastColumn() >= 1 &&
+    s.getRange(1, 1, 1, s.getLastColumn()).getDisplayValues()[0].some(h => normalizeKey_(h) === 'contactgoaldays');
+  const named = [ss.getSheetByName('Settings'), ss.getSheetByName(RULES_SHEET)].find(hasGoals);
+  if (named) return named;
   return ss.getSheets().find(s => {
+    if (/^_/.test(s.getName())) return false;
     if (s.getName() === MAIN_SHEET || s.getLastColumn() < 1) return false;
     return s.getRange(1, 1, 1, s.getLastColumn()).getDisplayValues()[0]
       .some(h => normalizeKey_(h) === 'contactgoaldays');
@@ -447,7 +490,7 @@ function readLog_(ss) {
   const cutoff = Utilities.formatDate(new Date(Date.now() - LOG_DAYS * 86400000), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd');
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getDisplayValues()
     .filter(r => r[0] && r[1] >= cutoff)
-    .map(r => ({ id: r[0], date: r[1], name: r[2], type: r[3], xp: Number(r[4]) || 0, note: r[5] }));
+    .map(r => [r[0], r[1], r[2], r[3], Number(r[4]) || 0, r[5]]); // compact: the app turns these back into objects
 }
 
 // eventsJson: [{id, date: 'yyyy-mm-dd', name, type, xp, note}]
@@ -576,14 +619,15 @@ function emailChristmasList() {
 function parseDateParts_(raw) {
   const s = String(raw || '').trim();
   const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const yr = v => v === null || v >= 100 ? v : v + (v > new Date().getFullYear() % 100 ? 1900 : 2000);
   let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
   if (m) return { y: +m[1], m: +m[2] - 1, d: +m[3] };
   m = /^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/.exec(s);
-  if (m) return { y: m[3] ? +m[3] : null, m: +m[2] - 1, d: +m[1] };
-  m = /(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3})[a-z]*\.?(?:,?\s+(\d{4}))?/i.exec(s);
-  if (m && months.indexOf(m[2].toLowerCase()) >= 0) return { y: m[3] ? +m[3] : null, m: months.indexOf(m[2].toLowerCase()), d: +m[1] };
-  m = /([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?/i.exec(s);
-  if (m && months.indexOf(m[1].toLowerCase()) >= 0) return { y: m[3] ? +m[3] : null, m: months.indexOf(m[1].toLowerCase()), d: +m[2] };
+  if (m) return { y: yr(m[3] ? +m[3] : null), m: +m[2] - 1, d: +m[1] };
+  m = /(\d{1,2})(?:st|nd|rd|th)?[\s\-\/.]+([a-z]{3})[a-z]*\.?(?:,?[\s\-\/.]+(\d{4}|\d{2}))?/i.exec(s);
+  if (m && months.indexOf(m[2].toLowerCase()) >= 0) return { y: yr(m[3] ? +m[3] : null), m: months.indexOf(m[2].toLowerCase()), d: +m[1] };
+  m = /([a-z]{3})[a-z]*\.?[\s\-\/.]+(\d{1,2})(?:st|nd|rd|th)?(?:,?[\s\-\/.]+(\d{4}|\d{2}))?/i.exec(s);
+  if (m && months.indexOf(m[1].toLowerCase()) >= 0) return { y: yr(m[3] ? +m[3] : null), m: months.indexOf(m[1].toLowerCase()), d: +m[2] };
   return null;
 }
 
@@ -735,8 +779,13 @@ function dailyJobs() {
   if (Utilities.formatDate(now, tz, 'u') === '1') emailWeeklyNudge(true); // Mondays
 }
 
+// Remembered in script properties, because listing triggers on every load is slow.
 function remindersOn_() {
-  return ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailyJobs');
+  const stored = PropertiesService.getScriptProperties().getProperty('remindersOn');
+  if (stored !== null) return stored === 'true';
+  const on = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailyJobs');
+  PropertiesService.getScriptProperties().setProperty('remindersOn', String(on));
+  return on;
 }
 
 function setReminders(on) {
@@ -744,24 +793,22 @@ function setReminders(on) {
     .filter(t => t.getHandlerFunction() === 'dailyJobs')
     .forEach(t => ScriptApp.deleteTrigger(t));
   if (on) ScriptApp.newTrigger('dailyJobs').timeBased().everyDays(1).atHour(8).create();
-  return remindersOn_();
+  PropertiesService.getScriptProperties().setProperty('remindersOn', String(!!on));
+  return !!on;
 }
 
 /* ───────────────────────── First run ───────────────────────── */
 
-// Gives a brand-new spreadsheet the Main and Rules sheets. Never touches an existing Main sheet.
+// Gives a brand-new, empty spreadsheet the Main and Rules sheets. Leaves any spreadsheet with data alone.
 function setupIfNeeded_(ss) {
-  if (!ss.getSheetByName(MAIN_SHEET)) {
-    const first = ss.getSheets()[0];
-    const blank = ss.getSheets().length === 1 && first.getLastRow() === 0;
-    const main = blank ? first.setName(MAIN_SHEET) : ss.insertSheet(MAIN_SHEET, 0);
-    main.getRange(1, 1, 1, STARTER_HEADERS.length).setValues([STARTER_HEADERS]).setFontWeight('bold');
-    main.setFrozenRows(1);
-  }
-  if (!rulesSheet_(ss)) {
-    const rules = ss.getSheetByName(RULES_SHEET) || ss.insertSheet(RULES_SHEET);
-    rules.getRange(1, 1, STARTER_RULES.length, STARTER_RULES[0].length).setValues(STARTER_RULES);
-    rules.getRange(1, 1, 1, STARTER_RULES[0].length).setFontWeight('bold');
-    rules.setFrozenRows(1);
-  }
+  if (ss.getSheetByName(MAIN_SHEET)) return;
+  const first = ss.getSheets()[0];
+  if (ss.getSheets().length > 1 || first.getLastRow() > 0) return; // has data: use it as it is
+  const main = first.setName(MAIN_SHEET);
+  main.getRange(1, 1, 1, STARTER_HEADERS.length).setValues([STARTER_HEADERS]).setFontWeight('bold');
+  main.setFrozenRows(1);
+  const rules = ss.insertSheet(RULES_SHEET);
+  rules.getRange(1, 1, STARTER_RULES.length, STARTER_RULES[0].length).setValues(STARTER_RULES);
+  rules.getRange(1, 1, 1, STARTER_RULES[0].length).setFontWeight('bold');
+  rules.setFrozenRows(1);
 }
