@@ -24,6 +24,7 @@ launcher/                ← optional: gives you a proper home-screen icon
 - **Nothing is deleted or renamed.** Formula columns (Friend Health Score, Contact Task and so on) are left alone and shown as 🔒 in the app.
 - The first time you use them, the app adds these columns to the end of **Main**: `Last Called`, `Last Invited`, `Next Plan`, `Next Plan Date`, `Phone`, `Likes`, `Dislikes`, `Notes`.
 - Your home bases are saved in the script's settings, not the sheet.
+- Two more hidden sheets: `_Log` (every catch-up, invite and plan outcome you log, which powers reliability, XP and streaks) and `_Weekly` (one friendship score per week).
 - The map adds a hidden sheet called `_Geo` that remembers where each place is, so it only looks each one up once.
 - You have **two "Address" columns**. The app treats the second as "Address (2nd column)". For Christmas labels it uses whichever one has a house number or postcode in it. If you rename one (for example to "Postal Address"), the app will cope.
 
@@ -63,6 +64,23 @@ Friends with no address or place tag keep the Proximity Score from your sheet. S
 - **💌 Invite planner** (from Today, a place, or a friend's page): choose where, what (coffee, dinner…), how many, and optionally a tag. You get the most overdue friends, closest tiers first, with allergies, likes and dislikes shown. **Mark invited** logs it for everyone at once, and they're left off the to-book lists for 14 days.
 - **Monday email** (with reminders on): upcoming birthdays plus the top 5 people to invite near your current base.
 
+## Reliability & tier check-ins
+
+Answer the app's quick prompts and it learns who shows up:
+- **"Did this happen?"** after a plan: *Yes* / *They cancelled* / *I cancelled* (you cancelling never counts against them).
+- **"Any replies?"** 4+ days after an invite: *Booked* / *Said no* / *No reply*.
+- **📥 They got in touch**, on a friend's page, when they message you first.
+
+Reliability = (kept + said yes + 1) ÷ (kept + said yes + cancelled + no reply + ½ × said no + 2). It appears after 3 outcomes. Friends below 40% get nudged a little less, so your effort goes where it's returned.
+
+**🎚️ Tier check-in** suggests moving someone **down** a tier if they're under 40% reliable, or if you've messaged or invited them 5+ times in 90 days with no reply, call or meet-up. (That second rule only switches on once you've used 📥 a few times.) It suggests moving someone **up** if they're 80%+ reliable and often get in touch first. Nothing changes until you tap *Move*. *Keep* hides the suggestion for 90 days.
+
+## The game
+
+- **Friendship score:** everyone's health averaged, with closer tiers counting more. It's saved weekly so you can see if you're improving. The chart starts the week you install this; there's no history before then.
+- **XP:** message 5, call 10, see someone 25, invite 5, book 10, plan happened +15, reconnect after 6+ months +20, birthday +10. You get 3 **weekly quests** (+30 each), a 🔥 **streak** for every week you earn 40+ XP, 10 **levels** from Hermit crab 🐚 to Mayor of friendship 👑, and 12 **badges**.
+- The Monday email includes your score and how it changed from the week before.
+
 ## Home-screen icon (optional)
 
 A Google Apps Script link can't have its own icon, so `launcher/` is a tiny page that holds the icon and opens your app. It contains no personal data, and your app link only goes in the bookmark.
@@ -75,15 +93,23 @@ A Google Apps Script link can't have its own icon, so `launcher/` is a tiny page
 
 The first time you open it from the home screen, you may need to sign in to Google once.
 
-## Sharing with friends
+## Sharing with friends: a template
 
 Each friend gets their own private copy, and nobody can see anyone else's list.
 
-1. They create a new blank Google Sheet.
-2. **Extensions → Apps Script**: paste in `Code.gs`, then add an HTML file called `Index` and paste in `Index.html`.
-3. **Deploy → New deployment → Web app** (Execute as: Me, Who has access: Only myself).
-4. They open the link. On first run the app creates the `Main` and `Rules` sheets with starter headers and goals.
-5. Optional: they use your launcher page with **their own** link to get the icon.
+**Set up the template once:**
+1. Create a new blank Google Sheet called "Social OS template". Do **not** use your real sheet.
+2. **Extensions → Apps Script**: paste in `Code.gs`, add an HTML file called `Index` and paste in `Index.html`. Save.
+3. **Share → Anyone with the link → Viewer.**
+4. Take the sheet's link, change the ending `/edit…` to `/copy`, and send that to friends.
+
+**Each friend then:**
+1. Opens the `/copy` link and taps **Make a copy**. That copies the script too.
+2. In their copy: **Extensions → Apps Script → Deploy → New deployment → Web app** (Execute as: Me, Who has access: Only myself).
+3. Opens their link and approves the permissions. On first run the app creates `Main` and `Rules` with starter goals.
+4. Optional: uses your launcher page with **their own** link to get the icon.
+
+When you improve the code later, friends need to paste in the new files themselves. Copies don't update automatically.
 
 ## Privacy
 

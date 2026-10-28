@@ -9,6 +9,9 @@
 const MAIN_SHEET = 'Main';
 const RULES_SHEET = 'Rules';
 const GEO_SHEET = '_Geo';
+const LOG_SHEET = '_Log';       // every logged interaction: powers reliability, XP and streaks
+const WEEKS_SHEET = '_Weekly';  // one friendship-score snapshot per week
+const LOG_DAYS = 3650;          // how much history the app loads
 const ICON_URL = ''; // optional: a public PNG link for the browser-tab icon
 
 // Columns the app adds to Main the first time it needs them.
@@ -75,6 +78,8 @@ function getData() {
       sheetUrl: ss.getUrl() + '#gid=' + sheet.getSheetId(),
       remindersOn: remindersOn_(),
       prefs: getPrefs_(),
+      log: readLog_(ss),
+      weeks: readWeeks_(ss),
       email: Session.getEffectiveUser().getEmail(),
       extraColumns: EXTRA_COLUMNS
     });
@@ -424,6 +429,88 @@ function geocode(queriesJson) {
   return JSON.stringify(out);
 }
 
+/* ───────────────────────── History ───────────────────────── */
+
+function hiddenSheet_(ss, name, headers) {
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    sheet.hideSheet();
+  }
+  return sheet;
+}
+
+function readLog_(ss) {
+  const sheet = ss.getSheetByName(LOG_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const cutoff = Utilities.formatDate(new Date(Date.now() - LOG_DAYS * 86400000), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getDisplayValues()
+    .filter(r => r[0] && r[1] >= cutoff)
+    .map(r => ({ id: r[0], date: r[1], name: r[2], type: r[3], xp: Number(r[4]) || 0, note: r[5] }));
+}
+
+// eventsJson: [{id, date: 'yyyy-mm-dd', name, type, xp, note}]
+function logEvents(eventsJson) {
+  const events = JSON.parse(eventsJson);
+  if (!events.length) return JSON.stringify({ ok: true });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = hiddenSheet_(SpreadsheetApp.getActiveSpreadsheet(), LOG_SHEET, ['ID', 'Date', 'Name', 'Type', 'XP', 'Note']);
+    // Store the date as text so it never gets reformatted by the sheet's locale.
+    const rows = events.map(e => [String(e.id), "'" + e.date, String(e.name), String(e.type), Number(e.xp) || 0, String(e.note || '')]);
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+    return JSON.stringify({ ok: true });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Used by Undo.
+function removeEvents(idsJson) {
+  const ids = JSON.parse(idsJson);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LOG_SHEET);
+    if (!sheet || sheet.getLastRow() < 2) return JSON.stringify({ ok: true });
+    const col = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues();
+    for (let i = col.length - 1; i >= 0; i--) {
+      if (ids.indexOf(col[i][0]) >= 0) sheet.deleteRow(i + 2);
+    }
+    return JSON.stringify({ ok: true });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function readWeeks_(ss) {
+  const sheet = ss.getSheetByName(WEEKS_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues()
+    .filter(r => r[0])
+    .map(r => ({ week: r[0], score: Number(r[1]), thriving: Number(r[2]), tracked: Number(r[3]), xp: Number(r[4]) }));
+}
+
+// The app saves the current week's score whenever it changes. weekJson: {week: 'yyyy-mm-dd' (Monday), score, thriving, tracked, xp}
+function saveWeek(weekJson) {
+  const w = JSON.parse(weekJson);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = hiddenSheet_(SpreadsheetApp.getActiveSpreadsheet(), WEEKS_SHEET, ['Week', 'Score', 'Thriving', 'Tracked', 'XP']);
+    const row = [["'" + w.week, w.score, w.thriving, w.tracked, w.xp]];
+    const last = sheet.getLastRow();
+    const weeks = last >= 2 ? sheet.getRange(2, 1, last - 1, 1).getDisplayValues() : [];
+    const i = weeks.findIndex(r => r[0] === w.week);
+    sheet.getRange(i >= 0 ? i + 2 : last + 1, 1, 1, 5).setValues(row);
+    return JSON.stringify({ ok: true });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /* ───────────────────────── Emails & reminders ───────────────────────── */
 
 function isYes_(v) {
@@ -591,6 +678,12 @@ function emailWeeklyNudge(skipIfEmpty) {
     (s.f.likes ? muted('Likes: ' + htmlEsc_(s.f.likes)) : '') +
     (s.f.allergydietaryrequirements ? muted('Diet: ' + htmlEsc_(s.f.allergydietaryrequirements)) : '') + '</li>').join('');
 
+  const weeks = readWeeks_(ss).sort((a, b) => a.week < b.week ? -1 : 1);
+  const latest = weeks[weeks.length - 1], before = weeks[weeks.length - 2];
+  const scoreLine = latest
+    ? '<p style="font-size:18px;margin:0 0 16px">💗 Friendship score: <b>' + latest.score + '</b>' +
+      (before ? ' (' + (latest.score >= before.score ? '▲ ' : '▼ ') + Math.abs(latest.score - before.score) + ' on the week before)' : '') + '</p>'
+    : '';
   const parts = [];
   if (soon.length) parts.push(soon.length + ' birthday' + (soon.length === 1 ? '' : 's'));
   if (invites.length) parts.push(invites.length + ' to invite near ' + prefs.current);
@@ -598,7 +691,7 @@ function emailWeeklyNudge(skipIfEmpty) {
   MailApp.sendEmail({
     to: to,
     subject: '🫶 This week: ' + (parts.join(' · ') || 'all quiet'),
-    htmlBody: '<div style="font-family:Arial,sans-serif;color:#2b2118">' +
+    htmlBody: '<div style="font-family:Arial,sans-serif;color:#2b2118">' + scoreLine +
       '<h2>🎂 Birthdays coming up</h2><ul style="padding-left:18px">' + (bdayItems || '<li>None in the next two weeks.</li>') + '</ul>' +
       (prefs.current
         ? '<h2>💌 Who to invite near ' + htmlEsc_(prefs.current) + '</h2><ul style="padding-left:18px">' + (inviteItems || '<li>Everyone nearby is up to date.</li>') + '</ul>'

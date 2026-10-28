@@ -195,6 +195,32 @@
     .leaflet-popup-content { margin: 12px 14px; font-family: Nunito; }
     .popup-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-weight: 800; }
 
+    /* Scoreboard & progress */
+    .score-card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow); cursor: pointer; }
+    .eyebrow { font-size: 11.5px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+    .big-num { font-family: Fredoka; font-weight: 700; font-size: 46px; line-height: 1; }
+    .delta { display: inline-block; font-family: Nunito; font-size: 13px; font-weight: 800; margin-left: 8px; padding: 3px 9px; border-radius: 10px; background: var(--surface-2); color: var(--muted); vertical-align: middle; }
+    .delta.up { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+    .delta.down { color: var(--bad); background: color-mix(in srgb, var(--bad) 13%, transparent); }
+    .pills { display: flex; gap: 8px; margin-top: 14px; }
+    .pill { flex: 1; background: var(--surface-2); border-radius: 14px; padding: 8px 10px; min-width: 0; }
+    .pill b { font-family: Fredoka; font-size: 18px; display: block; }
+    .xpbar { height: 6px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 4px; }
+    .xpbar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+    .quest { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13.5px; font-weight: 700; }
+    .quest:first-of-type { border-top: 0; }
+    .quest .tick { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-size: 13px; flex: none; }
+    .quest.done .tick { background: var(--good); color: #fff; }
+    .quest.done .q { color: var(--muted); text-decoration: line-through; }
+    .badges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .badge-tile { background: var(--surface-2); border-radius: 16px; padding: 10px 6px; text-align: center; font-size: 12px; font-weight: 700; }
+    .badge-tile .e { font-size: 30px; display: block; }
+    .badge-tile.locked .e { filter: grayscale(1); opacity: .35; }
+    .badge-tile.locked { color: var(--muted); }
+    .chart-tip { min-height: 20px; font-size: 13px; font-weight: 700; color: var(--muted); text-align: center; }
+    .bar-hit { cursor: pointer; }
+    .bar-hit:hover rect.bg, .bar-hit:focus rect.bg { fill: var(--surface-2); }
+
     /* Toast */
     #toast { position: fixed; left: 50%; bottom: calc(var(--bar-h) + 20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 8px; width: min(92vw, 460px); pointer-events: none; }
     .toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 16px; background: var(--text); color: var(--bg); font-weight: 700; box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: up .25s both; }
@@ -267,7 +293,7 @@
 
   /* ───────────── State ───────────── */
   const S = {
-    data: null, friends: [], byRow: {}, cols: {}, prefs: { bases: [], current: '', autoDistance: true }, openPlaces: new Set(),
+    data: null, friends: [], byRow: {}, cols: {}, prefs: { bases: [], current: '', autoDistance: true }, openPlaces: new Set(), log: [], logByName: {}, weeks: [],
     tab: 'today', todayFilter: 'all',
     query: '', tiers: new Set(), status: '', sort: 'priority',
     datesView: 'birthdays', sheet: null,
@@ -409,12 +435,14 @@
 
     const contactRatio = tier ? Math.min(9, dContact == null ? 9 : dContact / contactGoal) : 0;
     const seeRatio = tier ? Math.min(9, dSeenEff == null ? 9 : dSeenEff / seeGoal) : 0;
-    const weight = tier ? 7 - tier : 0;
+    const rel = friendStats(f);
+    // Spend your energy where it's returned: flaky friends get nudged a bit less.
+    const weight = (tier ? 7 - tier : 0) * (rel.attempts >= RELIABILITY_MIN ? 0.5 + 0.5 * rel.reliability : 1);
     const needsMessage = !!tier && contactRatio >= 1;
     const needsBooking = !!tier && !booked && !recentlyInvited && seeRatio >= 1;
 
     f.$ = {
-      tier, prox, sheetProx, proxAuto, km, loc, dInvited, recentlyInvited, contactRatio, seeRatio, tierLabel: tr ? tr.label : '', geography: prox ? proxRule(prox).geography : '',
+      rel, tier, prox, sheetProx, proxAuto, km, loc, dInvited, recentlyInvited, contactRatio, seeRatio, tierLabel: tr ? tr.label : '', geography: prox ? proxRule(prox).geography : '',
       contactGoal, seeGoal, callCredit, dMsg, dSeen, dCall, dContact, dSeenEff,
       contactScore: contactScore == null ? null : Math.round(contactScore),
       seeScore: seeScore == null ? null : Math.round(seeScore), health,
@@ -464,6 +492,187 @@
       .sort(seeRank);
   }
 
+  /* ───────────── History, reliability & game ───────────── */
+  const XP = { message: 5, call: 10, meet: 25, invite: 5, reached: 5, booked: 10, happened: 15, invite_declined: 2 };
+  const BONUS = { reconnect: 20, birthday: 10 };
+  const QUEST_XP = 30;
+  const WEEK_GOAL_XP = 40;      // a week keeps your streak alive at this much XP
+  const RELIABILITY_MIN = 3;    // invite/plan outcomes needed before reliability counts
+  const LEVELS = ['Hermit crab 🐚', 'Acquaintance 👋', 'Pal 🙂', 'Buddy 🤗', 'Social butterfly 🦋', 'Connector 🔗', 'Host with the most 🥂', 'Community pillar 🏛️', 'Friendship legend 🌟', 'Mayor of friendship 👑'];
+  const xpForLevel = n => 50 * n * (n - 1); // level 2 at 100 XP, 3 at 300, 4 at 600…
+  const distinct = ev => new Set(ev.map(e => e.name.toLowerCase())).size;
+  const QUESTS = [
+    { label: 'See 2 friends in person', goal: 2, count: ev => distinct(ev.filter(e => e.type === 'meet')) },
+    { label: 'Message or call 5 different friends', goal: 5, count: ev => distinct(ev.filter(e => e.type === 'message' || e.type === 'call')) },
+    { label: 'Reconnect with someone you haven’t seen in 6+ months', goal: 1, count: ev => ev.filter(e => /reconnect/.test(e.note)).length },
+    { label: 'Call a friend who lives far away', goal: 1, count: ev => ev.filter(e => e.type === 'call' && /far/.test(e.note)).length },
+    { label: 'Invite 3 people to something', goal: 3, count: ev => ev.filter(e => e.type === 'invite').length },
+    { label: 'Get a plan in the diary', goal: 1, count: ev => ev.filter(e => e.type === 'booked').length },
+    { label: 'Catch up with 3 tier 1–2 friends', goal: 3, count: ev => distinct(ev.filter(e => /\bt[12]\b/.test(e.note) && ['message', 'call', 'meet'].includes(e.type))) }
+  ];
+  const countType = (ev, t) => ev.filter(e => e.type === t).length;
+  const BADGES = [
+    { e: '👣', name: 'First steps', desc: 'Log a catch-up', goal: 1, value: ev => ev.filter(e => XP[e.type]).length },
+    { e: '🦋', name: 'Social butterfly', desc: 'See friends 25 times', goal: 25, value: ev => countType(ev, 'meet') },
+    { e: '☎️', name: 'Phone a friend', desc: '10 calls', goal: 10, value: ev => countType(ev, 'call') },
+    { e: '🎉', name: 'Party planner', desc: 'Invite 6+ in a day', goal: 6, value: ev => Math.max(0, ...Object.values(ev.filter(e => e.type === 'invite').reduce((m, e) => (m[e.date] = (m[e.date] || 0) + 1, m), {}))) },
+    { e: '🔁', name: 'Reconnector', desc: '5 long-lost catch-ups', goal: 5, value: ev => ev.filter(e => /reconnect/.test(e.note)).length },
+    { e: '🎂', name: 'Birthday hero', desc: '3 birthday messages', goal: 3, value: ev => ev.filter(e => /birthday/.test(e.note)).length },
+    { e: '📅', name: 'Diary keeper', desc: '10 plans that happened', goal: 10, value: ev => countType(ev, 'happened') },
+    { e: '🌍', name: 'Long distance', desc: '5 calls to far-away friends', goal: 5, value: ev => ev.filter(e => e.type === 'call' && /far/.test(e.note)).length },
+    { e: '🧲', name: 'Magnetic', desc: 'Friends got in touch 10 times', goal: 10, value: ev => countType(ev, 'reached') },
+    { e: '🔥', name: 'On a roll', desc: '4-week streak', goal: 4, value: (ev, g) => g.best },
+    { e: '🏆', name: 'Unstoppable', desc: '12-week streak', goal: 12, value: (ev, g) => g.best },
+    { e: '💯', name: 'Centurion', desc: '100 catch-ups logged', goal: 100, value: ev => ev.filter(e => ['message', 'call', 'meet'].includes(e.type)).length }
+  ];
+
+  function weekStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+  const weekKey = d => iso(weekStart(d));
+  function addWeeks(d, n) { const x = new Date(d); x.setDate(x.getDate() + 7 * n); return x; }
+  function questsFor(key) {
+    const i = Math.round(parseDate(key) / (7 * DAY));
+    return [0, 2, 4].map(o => QUESTS[(i + o) % QUESTS.length]);
+  }
+
+  function indexLog() {
+    S.logByName = {};
+    S.log.forEach(e => { const k = String(e.name).toLowerCase(); (S.logByName[k] = S.logByName[k] || []).push(e); });
+    Object.values(S.logByName).forEach(l => l.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  }
+
+  // How dependable someone is, from what's happened to your invites and plans.
+  function friendStats(f) {
+    const evs = (S.logByName || {})[String(f.name).toLowerCase()] || [];
+    const since = n => iso(new Date(today() - n * DAY));
+    const c = (type, from) => evs.filter(e => e.type === type && (!from || e.date >= from)).length;
+    const kept = c('happened'), yes = c('invite_yes'), cancelled = c('they_cancelled'), ghosted = c('invite_noreply'), declined = c('invite_declined');
+    const good = kept + yes, bad = cancelled + ghosted + declined * 0.5;
+    const d90 = since(90);
+    // Messages and invites can go unanswered; calls and meet-ups can't, so they show it's two-way.
+    const mine90 = c('message', d90) + c('invite', d90), theirs90 = c('reached', d90), meets90 = c('meet', d90) + c('call', d90);
+    // An invite is waiting for an answer until something else happens with them (within 30 days).
+    let pendingInvite = null;
+    for (let i = evs.length - 1; i >= 0; i--) {
+      const e = evs[i];
+      if (['invite_yes', 'invite_declined', 'invite_noreply', 'booked', 'meet', 'happened'].includes(e.type)) break;
+      if (e.type === 'invite') { if (e.date >= since(30)) pendingInvite = e; break; }
+    }
+    return {
+      kept, yes, cancelled, ghosted, declined, invites: c('invite', since(365)),
+      attempts: kept + yes + cancelled + ghosted + declined,
+      reliability: (good + 1) / (good + bad + 2),
+      mine90, theirs90, meets90, pendingInvite,
+      recentTierCheck: evs.some(e => /^tier_/.test(e.type) && e.date >= d90)
+    };
+  }
+  function reliabilityLabel(r) {
+    if (r.attempts < RELIABILITY_MIN) return 'Not enough history yet';
+    return r.reliability >= 0.8 ? 'Rock solid 🪨' : r.reliability >= 0.6 ? 'Reliable 👍' : r.reliability >= 0.4 ? 'Hit and miss 🎲' : 'Hard to pin down 🫥';
+  }
+
+  // Suggests moving someone down a tier when it's all one-way, or up when they're brilliant.
+  function tierSuggestion(f) {
+    const r = f.$.rel, t = f.$.tier;
+    if (!t || r.recentTierCheck) return null;
+    const why = [];
+    if (r.invites) why.push(`invited ${r.invites}×`);
+    if (r.kept + r.yes) why.push(`${r.kept + r.yes} said yes or showed up`);
+    if (r.cancelled) why.push(`${r.cancelled} cancelled`);
+    if (r.ghosted) why.push(`${r.ghosted} no reply`);
+    const flaky = r.attempts >= RELIABILITY_MIN && r.reliability < 0.4;
+    // Only judge "one-way" once you're logging when friends get in touch, or everyone would look one-way.
+    const usesReached = S.log.filter(e => e.type === 'reached').length >= 3;
+    const oneWay = usesReached && r.mine90 >= 5 && r.theirs90 === 0 && r.meets90 === 0;
+    if ((flaky || oneWay) && t < 6) {
+      if (oneWay) why.push(`you reached out ${r.mine90}× in 90 days, they didn’t once`);
+      return { to: t + 1, dir: 'down', why: why.join(' · ') };
+    }
+    if (t > 1 && r.attempts >= RELIABILITY_MIN && r.reliability >= 0.8 && r.theirs90 >= 2) {
+      why.push(`they got in touch first ${r.theirs90}× lately`);
+      return { to: t - 1, dir: 'up', why: why.join(' · ') };
+    }
+    return null;
+  }
+
+  function gameStats() {
+    const byWeek = {};
+    S.log.forEach(e => { const d = parseDate(e.date); if (d) (byWeek[weekKey(d)] = byWeek[weekKey(d)] || []).push(e); });
+    const weekXP = {};
+    let xp = 0;
+    Object.entries(byWeek).forEach(([k, ev]) => {
+      const done = questsFor(k).filter(q => q.count(ev) >= q.goal).length;
+      weekXP[k] = ev.reduce((sum, e) => sum + (e.xp || 0), 0) + done * QUEST_XP;
+      xp += weekXP[k];
+    });
+    const thisWeek = weekKey(today());
+    // The current week only joins the streak once it's earned enough.
+    let streak = 0, d = weekStart(today());
+    if ((weekXP[thisWeek] || 0) < WEEK_GOAL_XP) d = addWeeks(d, -1);
+    while ((weekXP[iso(d)] || 0) >= WEEK_GOAL_XP) { streak++; d = addWeeks(d, -1); }
+    let best = 0, run = 0;
+    const keys = Object.keys(weekXP).sort();
+    if (keys.length) for (let w = parseDate(keys[0]); iso(w) <= thisWeek; w = addWeeks(w, 1)) {
+      run = (weekXP[iso(w)] || 0) >= WEEK_GOAL_XP ? run + 1 : 0;
+      best = Math.max(best, run);
+    }
+    let level = 1;
+    while (level < LEVELS.length && xp >= xpForLevel(level + 1)) level++;
+    const ev = byWeek[thisWeek] || [];
+    return { xp, weekXP, thisWeek, streak, best, level, quests: questsFor(thisWeek).map(q => ({ ...q, n: Math.min(q.goal, q.count(ev)) })) };
+  }
+
+  // Your overall friendship score: everyone's health, closer tiers counting for more.
+  function overallScore() {
+    let w = 0, sum = 0, thriving = 0, tracked = 0;
+    S.friends.forEach(f => {
+      if (f.$.health == null) return;
+      const k = 7 - f.$.tier;
+      w += k; sum += k * f.$.health; tracked++;
+      if (f.$.health >= 70) thriving++;
+    });
+    return { score: w ? Math.round(sum / w) : 0, thriving, tracked };
+  }
+
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  // Records things that happened (for reliability, XP and streaks). Returns the events, for undo.
+  function addEvents(list) {
+    const before = gameStats().level;
+    const evs = list.map(e => ({ id: newId(), date: e.date || iso(today()), name: e.name, type: e.type, xp: e.xp ?? (XP[e.type] || 0), note: e.note || '' }));
+    S.log.push(...evs);
+    afterLogChange(evs);
+    write('logEvents', JSON.stringify(evs)).catch(err => toast('⚠️ History not saved: ' + err.message));
+    const after = gameStats().level;
+    if (after > before) setTimeout(() => { confetti(); toast(`⬆️ Level ${after}: ${LEVELS[after - 1]}!`); }, 700);
+    return evs;
+  }
+  function removeEventsLocal(evs) {
+    const ids = evs.map(e => e.id);
+    S.log = S.log.filter(e => !ids.includes(e.id));
+    afterLogChange(evs);
+    write('removeEvents', JSON.stringify(ids)).catch(() => {});
+  }
+  function afterLogChange(evs) {
+    indexLog();
+    const names = new Set(evs.map(e => String(e.name).toLowerCase()));
+    S.friends.forEach(f => { if (names.has(String(f.name).toLowerCase())) compute(f); });
+    render(); rerenderSheet(); scheduleWeekSave();
+  }
+
+  let weekTimer = null;
+  function scheduleWeekSave() {
+    clearTimeout(weekTimer);
+    weekTimer = setTimeout(() => {
+      if (!S.data) return;
+      const o = overallScore(), g = gameStats();
+      if (!o.tracked) return;
+      const snap = { week: g.thisWeek, score: o.score, thriving: o.thriving, tracked: o.tracked, xp: g.weekXP[g.thisWeek] || 0 };
+      const old = S.weeks.find(w => w.week === snap.week);
+      if (old && ['score', 'thriving', 'tracked', 'xp'].every(k => old[k] === snap[k])) return;
+      if (old) Object.assign(old, snap); else S.weeks.push(snap);
+      write('saveWeek', JSON.stringify(snap)).catch(() => {});
+    }, 2500);
+  }
+
   /* ───────────── Talking to the sheet ───────────── */
   function api(name, ...args) {
     return new Promise((resolve, reject) => {
@@ -490,6 +699,9 @@
     d.columns.forEach(c => { S.cols[c.key] = c; });
     S.geo = Object.assign({}, S.geo, d.geo || {});
     S.prefs = Object.assign({ bases: [], current: '', autoDistance: true }, d.prefs || {});
+    S.log = d.log || [];
+    S.weeks = d.weeks || [];
+    indexLog();
     S.friends = d.friends.map(compute);
     S.byRow = {};
     S.friends.forEach(f => { S.byRow[f._row] = f; });
@@ -505,6 +717,7 @@
       try { localStorage.setItem(CACHE_KEY, json); } catch (e) {}
       if (open) { const f = S.friends.find(x => x.name === open); if (f) S.sheet.row = f._row; }
       render();
+      scheduleWeekSave();
       if (S.sheet && !(document.activeElement && $('#sheetPanel').contains(document.activeElement))) renderSheet();
       if (S.prefs.current) geocodeMissing();
     }).catch(err => toast('⚠️ ' + err.message)).finally(() => $('#syncBtn').classList.remove('spinning'));
@@ -530,14 +743,16 @@
   }
 
   const LOGS = {
+    reached: { field: 'lastcontacted', emoji: '📥', verb: 'Heard from' },
     invite: { field: 'lastinvited', emoji: '💌', verb: 'Invited' },
     message: { field: 'lastcontacted', emoji: '💬', verb: 'Messaged' },
     call: { field: 'lastcalled', emoji: '📞', verb: 'Called' },
     meet: { field: 'lastseenvideocalled', emoji: '🤝', verb: 'Saw' }
   };
-  function logInteraction(f, type, when) {
+  function logInteraction(f, type, when, extra = []) {
     const day = when || iso(today());
     const L = LOGS[type];
+    const was = f.$;
     const newer = raw => { const d = parseDate(raw); return !d || d.noYear || iso(d) <= day; };
     const changes = {};
     if (newer(f[L.field])) changes[L.field] = day;
@@ -547,9 +762,19 @@
     vibrate();
     const before = f.$.health;
     if (type === 'meet') confetti();
+    // XP, with bonuses for reconnecting and for birthdays.
+    const notes = was.tier ? ['t' + was.tier] : [];
+    let xp = XP[type] || 0;
+    if ((type === 'meet' || type === 'call') && was.dSeenEff != null && was.dSeenEff >= 180) { notes.push('reconnect'); xp += BONUS.reconnect; }
+    if (type !== 'invite' && was.bday && was.bday.days === 0 && day === iso(today())) { notes.push('birthday'); xp += BONUS.birthday; }
+    if (type === 'call' && was.prox && was.prox <= 2) notes.push('far');
+    const events = [{ name: f.name, type, date: day, xp, note: notes.join(' ') }, ...extra];
+    if ((type === 'meet' || type === 'call') && was.rel.pendingInvite) events.push({ name: f.name, type: 'invite_yes', date: day });
     save(f, changes).then(prev => {
+      const evs = addEvents(events);
+      const gained = evs.reduce((sum, e) => sum + e.xp, 0);
       const delta = before != null && f.$.health != null && f.$.health !== before ? ` · health ${before} → ${f.$.health}` : '';
-      toast(`${L.emoji} ${L.verb} ${f.name.split(' ')[0]}${delta}`, { undo: () => save(f, prev) });
+      toast(`${L.emoji} ${L.verb} ${f.name.split(' ')[0]}${delta}${gained ? ` · +${gained} XP` : ''}`, { undo: () => { save(f, prev).catch(() => {}); removeEventsLocal(evs); } });
     }).catch(() => {});
   }
 
@@ -577,6 +802,7 @@
     const $f = f.$, out = [];
     if ($f.planPast) out.push(`<span class="reason warn">❓ Did “${esc(f.nextplan || 'your plan')}” happen?</span>`);
     else if ($f.booked) out.push(`<span class="reason ok">✅ ${esc(f.nextplan || 'Booked')}${$f.planDate ? ' · ' + fmtDate($f.planDate) : ''}</span>`);
+    if ($f.rel.attempts >= RELIABILITY_MIN && $f.rel.reliability < 0.4) out.push(`<span class="reason">🫥 Hard to pin down</span>`);
     if ($f.recentlyInvited) out.push(`<span class="reason ok">💌 Invited ${ago($f.dInvited)}</span>`);
     if ($f.needsMessage) out.push(`<span class="reason warn">💬 ${$f.dContact == null ? 'never logged' : $f.dContact + 'd since contact'} · goal ${$f.contactGoal}d</span>`);
     if ($f.needsBooking) out.push(`<span class="reason warn">📅 Not seen ${$f.dSeenEff == null ? 'yet' : 'in ' + ago($f.dSeenEff).replace(' ago', '')}</span>`);
@@ -636,6 +862,102 @@
     return h < 12 ? 'Good morning ☀️' : h < 18 ? 'Good afternoon 🌤️' : 'Good evening 🌙';
   }
 
+  function scoreSeries(n) {
+    const o = overallScore(), thisWeek = weekKey(today());
+    const out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const key = iso(addWeeks(weekStart(today()), -i));
+      const snap = S.weeks.find(w => w.week === key);
+      out.push({ key, score: key === thisWeek ? o.score : snap ? snap.score : null, now: key === thisWeek });
+    }
+    return out;
+  }
+  function lastWeekScore() {
+    const prev = S.weeks.filter(w => w.week < weekKey(today())).sort((a, b) => a.week < b.week ? -1 : 1).pop();
+    return prev ? prev.score : null;
+  }
+  function deltaChip(score) {
+    const last = lastWeekScore();
+    if (last == null) return `<span class="delta">first week, check back Monday</span>`;
+    const d = score - last;
+    return `<span class="delta ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d > 0 ? '▲' : d < 0 ? '▼' : '●'} ${Math.abs(d)} vs last week</span>`;
+  }
+  const roundTop = (x, y, w, h, r = 4) => { r = Math.min(r, w / 2, h); return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`; };
+
+  // Weekly score bars, one hue, rounded tops on the baseline, hover or tap for the value.
+  function weekChart(weeks, { width = 340, height = 140, labels = true } = {}) {
+    const padB = labels ? 20 : 2, plotH = height - padB - 6, n = weeks.length;
+    const slot = width / n, bw = Math.max(4, Math.min(22, slot - 6));
+    const bars = weeks.map((w, i) => {
+      const x = i * slot + (slot - bw) / 2;
+      const d = parseDate(w.key);
+      const tip = `Week of ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}: ${w.score == null ? 'no score saved' : w.score}${w.now ? ' (so far)' : ''}`;
+      const h = w.score == null ? 0 : Math.max(2, (w.score / 100) * plotH);
+      const mark = w.score == null
+        ? `<rect x="${x}" y="${6 + plotH - 2}" width="${bw}" height="2" rx="1" fill="var(--border)"/>`
+        : `<path d="${roundTop(x, 6 + plotH - h, bw, h)}" fill="var(--accent)" opacity="${w.now ? 1 : 0.55}"/>`;
+      const label = labels && (i % 2 === (n - 1) % 2) ? `<text x="${x + bw / 2}" y="${height - 5}" text-anchor="middle" font-size="10" fill="var(--muted)" font-weight="700">${w.now ? 'now' : d.getDate() + '/' + (d.getMonth() + 1)}</text>` : '';
+      return `<g class="bar-hit" data-tip="${esc(tip)}" tabindex="0"><title>${esc(tip)}</title><rect class="bg" x="${i * slot}" y="0" width="${slot}" height="${6 + plotH}" fill="transparent" rx="6"/>${mark}${label}</g>`;
+    }).join('');
+    const grid = labels ? `<line x1="0" x2="${width}" y1="${6 + plotH * 0.3}" y2="${6 + plotH * 0.3}" stroke="var(--border)" stroke-dasharray="3 4"/>
+      <text x="${width}" y="${6 + plotH * 0.3 - 4}" text-anchor="end" font-size="10" fill="var(--muted)">70 thriving</text>` : '';
+    return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="Friendship score by week">${grid}
+      <line x1="0" x2="${width}" y1="${6 + plotH}" y2="${6 + plotH}" stroke="var(--border)"/>${bars}</svg>`;
+  }
+
+  function scoreboard() {
+    const o = overallScore(), g = gameStats();
+    const lo = xpForLevel(g.level), hi = xpForLevel(g.level + 1);
+    const pct = g.level >= LEVELS.length ? 100 : Math.round(100 * (g.xp - lo) / (hi - lo));
+    const weekXp = g.weekXP[g.thisWeek] || 0;
+    return `<div class="score-card" data-act="progress">
+      <div class="row" style="align-items:flex-end">
+        <div class="grow"><div class="eyebrow">Friendship score</div>
+          <div class="big-num" style="color:${healthColor(o.score)}">${o.score}${deltaChip(o.score)}</div></div>
+        <div style="width:110px">${weekChart(scoreSeries(8), { width: 110, height: 46, labels: false })}</div>
+      </div>
+      <div class="pills">
+        <div class="pill"><span class="eyebrow">Streak</span><b>🔥 ${g.streak} wk${g.streak === 1 ? '' : 's'}</b>
+          <div class="small muted">${weekXp >= WEEK_GOAL_XP ? 'this week ✓' : `${WEEK_GOAL_XP - weekXp} XP to keep it`}</div></div>
+        <div class="pill" style="flex:1.4"><span class="eyebrow">Level ${g.level}</span><b style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${LEVELS[g.level - 1]}</b>
+          <div class="xpbar"><i style="width:${pct}%"></i></div><div class="small muted">${g.xp} XP${g.level < LEVELS.length ? ` · ${hi - g.xp} to go` : ''}</div></div>
+      </div>
+      <div style="margin-top:12px"><div class="eyebrow" style="margin-bottom:2px">This week’s quests · +${QUEST_XP} XP each</div>
+        ${g.quests.map(q => `<div class="quest ${q.n >= q.goal ? 'done' : ''}"><span class="tick">${q.n >= q.goal ? '✓' : ''}</span><span class="q grow">${q.label}</span><span class="muted">${q.n}/${q.goal}</span></div>`).join('')}
+      </div></div>`;
+  }
+
+  function sheetProgress() {
+    const o = overallScore(), g = gameStats();
+    const lo = xpForLevel(g.level), hi = xpForLevel(g.level + 1);
+    const ranked = S.friends.filter(f => f.$.tier && f.$.rel.attempts >= RELIABILITY_MIN).sort((a, b) => b.$.rel.reliability - a.$.rel.reliability);
+    const relRow = f => `<div class="list-row" data-open="${f._row}">${avatar(f, 'sm')}<div class="grow"><div class="name" style="font-size:15px">${esc(f.name)}</div>
+      <div class="sub">${reliabilityLabel(f.$.rel)} · ${f.$.rel.kept + f.$.rel.yes} yes, ${f.$.rel.cancelled + f.$.rel.ghosted} flaked</div></div><b>${Math.round(f.$.rel.reliability * 100)}%</b></div>`;
+    return `<div class="sheet-head"><div style="font-size:40px">🏆</div><div class="grow"><h2>Your progress</h2><div class="sub">Level ${g.level} · ${LEVELS[g.level - 1]}</div></div></div>
+      <div class="box"><div class="eyebrow">Friendship score by week</div>
+        <div class="big-num" style="margin:4px 0 8px;color:${healthColor(o.score)}">${o.score}${deltaChip(o.score)}</div>
+        ${weekChart(scoreSeries(12))}
+        <div class="chart-tip" id="chartTip">Tap a bar to see the week</div>
+        <p class="small muted" style="margin:8px 0 0">Everyone’s health averaged, with closer tiers counting more. ${o.thriving} of ${o.tracked} friendships are thriving. A score is saved for each week you open the app.</p></div>
+      <div class="box"><div class="row"><div class="grow"><div class="eyebrow">Level ${g.level}</div><b>${LEVELS[g.level - 1]}</b></div><b>${g.xp} XP</b></div>
+        <div class="xpbar" style="height:9px;margin-top:8px"><i style="width:${g.level >= LEVELS.length ? 100 : Math.round(100 * (g.xp - lo) / (hi - lo))}%"></i></div>
+        <div class="small muted" style="margin-top:6px">${g.level < LEVELS.length ? `${hi - g.xp} XP until ${LEVELS[g.level]}` : 'Top level!'} · 🔥 streak ${g.streak} (best ${g.best})</div></div>
+      <div class="box"><h3>🎯 This week’s quests</h3>${g.quests.map(q => `<div class="quest ${q.n >= q.goal ? 'done' : ''}"><span class="tick">${q.n >= q.goal ? '✓' : ''}</span><span class="q grow">${q.label}</span><span class="muted">${q.n}/${q.goal}</span></div>`).join('')}
+        <div class="small muted" style="margin-top:6px">New quests every Monday. A week keeps your streak going at ${WEEK_GOAL_XP} XP.</div></div>
+      <div class="box"><h3>🏅 Badges</h3><div class="badges">${BADGES.map(b => {
+        const val = b.value(S.log, g), got = val >= b.goal;
+        return `<div class="badge-tile ${got ? '' : 'locked'}"><span class="e">${b.e}</span>${b.name}<div class="small muted" style="font-weight:600">${got ? b.desc : `${Math.min(val, b.goal)}/${b.goal} · ${b.desc}`}</div></div>`;
+      }).join('')}</div></div>
+      ${ranked.length ? `<div class="box"><h3>🪨 Most reliable</h3>${ranked.slice(0, 5).map(relRow).join('')}</div>
+        ${ranked.length > 5 || ranked.some(f => f.$.rel.reliability < 0.5) ? `<div class="box"><h3>🫥 Hard to pin down</h3>${ranked.slice().reverse().filter(f => f.$.rel.reliability < 0.6).slice(0, 5).map(relRow).join('') || '<p class="small muted">Nobody, lovely.</p>'}</div>` : ''}`
+        : `<div class="box"><h3>🪨 Reliability</h3><p class="small muted" style="margin:0">Shows up after ${RELIABILITY_MIN} invites or plans with someone. Answer the “Did this happen?” and “Any replies?” prompts to build it.</p></div>`}
+      <div class="box help"><h3>⭐ How XP works</h3><table>
+        <tr><td>💬 Message · 📥 they got in touch</td><td>5</td></tr><tr><td>📞 Call or video</td><td>10</td></tr>
+        <tr><td>🤝 See someone</td><td>25</td></tr><tr><td>💌 Invite · 📅 book a plan</td><td>5 · 10</td></tr>
+        <tr><td>🎉 A plan that happened</td><td>+15</td></tr><tr><td>🔁 Reconnect after 6+ months</td><td>+20</td></tr>
+        <tr><td>🎂 On their birthday</td><td>+10</td></tr><tr><td>🎯 Each weekly quest</td><td>+${QUEST_XP}</td></tr></table></div>`;
+  }
+
   function viewToday() {
     const all = S.friends.filter(f => f.$.tier);
     const msg = all.filter(f => f.$.needsMessage).sort((a, b) => b.$.priority - a.$.priority);
@@ -643,10 +965,9 @@
     const booked = S.friends.filter(f => f.$.booked).sort((a, b) => (a.$.planDays ?? 999) - (b.$.planDays ?? 999));
     const past = S.friends.filter(f => f.$.planPast);
     const bdays = S.friends.filter(f => f.$.bday && f.$.bday.days <= 14).sort((a, b) => a.$.bday.days - b.$.bday.days);
-    const healthy = all.filter(f => f.$.health >= 70).length;
 
     const base = currentBase();
-    let h = `<div class="hello"><h2>${greeting()}</h2><p>${healthy} of ${all.length} friendships are thriving${msg.length + book.length ? '. A few people would love to hear from you.' : '. Lovely work!'}</p>
+    let h = `<div class="hello"><h2>${greeting()}</h2><p>${msg.length + book.length ? 'A few people would love to hear from you.' : 'Everyone’s up to date. Lovely work!'}</p>
       <button class="chip" style="margin-top:10px" data-act="bases">🏠 ${base ? 'Living in ' + esc(base.name) : 'Where are you living right now?'} <span class="n">▾</span></button></div>`;
     if (base) {
       const ideas = inviteCandidates('base:' + base.name).filter(f => f.$.seeRatio >= 0.8);
@@ -656,12 +977,35 @@
           <div class="row" style="gap:0">${ideas.slice(0, 3).map((f, i) => `<div style="margin-left:${i ? -12 : 0}px">${avatar(f, 'sm')}</div>`).join('')}</div></div></div>`;
     }
 
+    h += scoreboard();
+    const pending = S.friends.filter(f => f.$.rel.pendingInvite && daysSince(f.$.rel.pendingInvite.date) >= 4);
+    if (pending.length) {
+      h += `<div class="banner"><h3>💌 Any replies?</h3>${pending.slice(0, 5).map(f => `
+        <div class="row" style="margin-top:8px">${avatar(f, 'sm')}
+          <div class="grow"><b>${esc(f.name)}</b><div class="small muted">invited ${ago(daysSince(f.$.rel.pendingInvite.date))}</div></div>
+          <button class="btn primary" style="padding:8px 10px" data-act="inv-reply" data-v="yes" data-row="${f._row}" title="Booked something">📅</button>
+          <button class="btn" style="padding:8px 10px" data-act="inv-reply" data-v="declined" data-row="${f._row}" title="Said no">🙂 No</button>
+          <button class="btn" style="padding:8px 10px" data-act="inv-reply" data-v="noreply" data-row="${f._row}" title="No reply">👻</button>
+        </div>`).join('')}</div>`;
+    }
+    const checks = S.friends.map(f => ({ f, s: tierSuggestion(f) })).filter(x => x.s).slice(0, 3);
+    if (checks.length) {
+      h += `<div class="banner" style="background:var(--surface-2)"><h3>🎚️ Tier check-in</h3>${checks.map(({ f, s }) => `
+        <div class="row" style="margin-top:10px;align-items:flex-start">${avatar(f, 'sm')}
+          <div class="grow"><b>${esc(f.name)}</b> <span class="small muted">· ${reliabilityLabel(f.$.rel)}</span>
+            <div class="small muted">${esc(s.why)}</div>
+            <div class="row" style="margin-top:6px">
+              <button class="btn primary" style="padding:7px 12px" data-act="tier-move" data-v="${s.to}" data-row="${f._row}">${s.dir === 'down' ? '⬇️' : '⬆️'} Move to tier ${s.to}</button>
+              <button class="btn" style="padding:7px 12px" data-act="tier-keep" data-row="${f._row}">Keep tier ${f.$.tier}</button></div></div>
+        </div>`).join('')}</div>`;
+    }
     if (past.length) {
       h += `<div class="banner"><h3>❓ Did these happen?</h3>${past.map(f => `
         <div class="row" style="margin-top:8px">${avatar(f, 'sm')}
           <div class="grow"><b>${esc(f.name)}</b><div class="small muted">${esc(f.nextplan || 'Plan')} · ${fmtDate(f.$.planDate)}</div></div>
-          <button class="btn primary" style="padding:8px 12px" data-act="plan-yes" data-row="${f._row}">Yes 🎉</button>
-          <button class="btn" style="padding:8px 12px" data-act="plan-no" data-row="${f._row}">No</button>
+          <button class="btn primary" style="padding:8px 10px" data-act="plan-yes" data-row="${f._row}">Yes 🎉</button>
+          <button class="btn" style="padding:8px 10px" data-act="plan-they" data-row="${f._row}" title="They cancelled">They ✗</button>
+          <button class="btn" style="padding:8px 10px" data-act="plan-me" data-row="${f._row}" title="You cancelled">Me ✗</button>
         </div>`).join('')}</div>`;
     }
     if (bdays.length) {
@@ -848,7 +1192,7 @@
     if (!S.sheet) return;
     const k = S.sheet.kind;
     const html = k === 'friend' ? sheetFriend() : k === 'book' ? sheetBook() : k === 'add' ? sheetAdd()
-      : k === 'browse' ? sheetBrowse() : k === 'settings' ? sheetSettings() : k === 'bases' ? sheetBases() : k === 'invite' ? sheetInvite() : '';
+      : k === 'progress' ? sheetProgress() : k === 'browse' ? sheetBrowse() : k === 'settings' ? sheetSettings() : k === 'bases' ? sheetBases() : k === 'invite' ? sheetInvite() : '';
     if (!html) return closeSheet();
     $('#sheetPanel').innerHTML = `<button class="close" data-act="close" aria-label="Close">✕</button><div class="grabber"></div>` + html;
   }
@@ -900,11 +1244,12 @@
         ${f.meeting ? `<div class="small muted">🤝 ${esc(f.meeting)}</div>` : ''}</div>
         ${ring($f.health, 64)}</div>
 
-      <div class="actions" style="margin:0 0 12px;grid-template-columns:repeat(5,1fr)">
+      <div class="actions" style="margin:0 0 12px;grid-template-columns:repeat(3,1fr)">
         <button class="act" data-act="log" data-type="message" data-row="${f._row}"><span class="e">💬</span>Messaged</button>
         <button class="act" data-act="log" data-type="call" data-row="${f._row}"><span class="e">📞</span>Called</button>
         <button class="act" data-act="log" data-type="meet" data-row="${f._row}"><span class="e">🤝</span>Saw</button>
         <button class="act" data-act="log" data-type="invite" data-row="${f._row}"><span class="e">💌</span>Invited</button>
+        <button class="act" data-act="log" data-type="reached" data-row="${f._row}"><span class="e">📥</span>They got in touch</button>
         <button class="act ${$f.booked ? 'on' : ''}" data-act="book" data-row="${f._row}"><span class="e">📅</span>${$f.booked ? 'Booked' : 'Book'}</button>
       </div>
       ${phone ? `<div class="links" style="margin-bottom:12px">
@@ -914,8 +1259,15 @@
 
       ${$f.hasPlan ? `<div class="box"><h3>${$f.planPast ? '❓ Did this happen?' : '✅ Booked'}</h3>
         <div class="row"><div class="grow"><b>${esc(f.nextplan || 'Plan')}</b><div class="small muted">${$f.planDate ? fmtDate($f.planDate) + ' · ' + inDays($f.planDays) : 'No date yet'}</div></div>
-          <button class="btn primary" style="padding:8px 12px" data-act="plan-yes" data-row="${f._row}">It happened 🎉</button>
-          <button class="btn" style="padding:8px 12px" data-act="plan-no" data-row="${f._row}">Cancel</button></div></div>` : ''}
+          </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary grow" style="padding:8px 10px" data-act="plan-yes" data-row="${f._row}">${$f.planPast ? 'It happened 🎉' : 'Done 🎉'}</button>
+          <button class="btn grow" style="padding:8px 10px" data-act="plan-they" data-row="${f._row}">They cancelled</button>
+          <button class="btn grow" style="padding:8px 10px" data-act="plan-me" data-row="${f._row}">I cancelled</button></div></div>` : ''}
+      ${$f.rel.pendingInvite ? `<div class="box"><h3>💌 Invited ${ago(daysSince($f.rel.pendingInvite.date))}: any reply?</h3><div class="row">
+          <button class="btn primary grow" style="padding:8px" data-act="inv-reply" data-v="yes" data-row="${f._row}">📅 Booked</button>
+          <button class="btn grow" style="padding:8px" data-act="inv-reply" data-v="declined" data-row="${f._row}">🙂 Said no</button>
+          <button class="btn grow" style="padding:8px" data-act="inv-reply" data-v="noreply" data-row="${f._row}">👻 No reply</button></div></div>` : ''}
 
       <div class="box"><h3>💗 Friendship health</h3>
         ${$f.tier ? `
@@ -931,6 +1283,15 @@
         </div></div>
         <label class="field" style="margin:0"><span>${$f.proxAuto ? 'Distance in sheet (used when auto is off)' : 'How far away'}</span>
           <select class="input" data-save="proximityscore" data-row="${f._row}" ${editable('proximityscore') ? '' : 'disabled'}><option value="">–</option>${proxOpts}</select></label>
+      </div>
+
+      <div class="box"><h3>🤝 Reliability</h3>
+        <div class="kv"><span>${reliabilityLabel($f.rel)}</span><b>${$f.rel.attempts >= RELIABILITY_MIN ? Math.round($f.rel.reliability * 100) + '%' : '–'}</b></div>
+        ${$f.rel.attempts >= RELIABILITY_MIN ? `<div class="bar"><i style="width:${Math.round($f.rel.reliability * 100)}%;background:${healthColor($f.rel.reliability * 100)}"></i></div>` : ''}
+        <div class="small muted" style="margin-top:6px">Plans kept ${$f.rel.kept} · said yes ${$f.rel.yes} · cancelled ${$f.rel.cancelled} · no reply ${$f.rel.ghosted} · said no ${$f.rel.declined}</div>
+        <div class="small muted">Last 90 days: you messaged or invited ${$f.rel.mine90}×, they got in touch ${$f.rel.theirs90}× (tap 📥 when they do)</div>
+        ${tierSuggestion(f) ? `<div class="row" style="margin-top:10px"><button class="btn primary grow" data-act="tier-move" data-v="${tierSuggestion(f).to}" data-row="${f._row}">${tierSuggestion(f).dir === 'down' ? '⬇️' : '⬆️'} Suggest: move to tier ${tierSuggestion(f).to}</button>
+          <button class="btn" data-act="tier-keep" data-row="${f._row}">Keep</button></div>` : ''}
       </div>
 
       <div class="box"><h3>🏷️ Tags</h3>
@@ -973,7 +1334,7 @@
       </div>
 
       <div class="box"><h3>🕰️ Log something from earlier</h3>
-        <div class="row"><select class="input" id="pastType" style="width:auto"><option value="meet">🤝 Saw</option><option value="call">📞 Called</option><option value="message">💬 Messaged</option><option value="invite">💌 Invited</option></select>
+        <div class="row"><select class="input" id="pastType" style="width:auto"><option value="meet">🤝 Saw</option><option value="call">📞 Called</option><option value="message">💬 Messaged</option><option value="invite">💌 Invited</option><option value="reached">📥 They got in touch</option></select>
         <input class="input grow" type="date" id="pastDate" max="${iso(today())}" value="${iso(new Date(Date.now() - DAY))}">
         <button class="btn primary" data-act="log-past" data-row="${f._row}">Log</button></div>
       </div>
@@ -1114,6 +1475,7 @@
         <div class="small muted">Christmas list on 25 November. On Mondays: upcoming birthdays and who to invite near your home base.</div></div>
         <button class="switch ${S.data.remindersOn ? 'on' : ''}" data-act="reminders"></button></div>
         <div class="row" style="margin-top:12px"><button class="btn grow" data-act="email-xmas">🎄 Send list now</button><button class="btn grow" data-act="email-bdays">🫶 Send weekly nudge now</button></div></div>
+      <button class="btn block" style="margin-bottom:12px" data-act="progress">🏆 Progress, badges & reliability</button>
       <button class="btn block" style="margin-bottom:12px" data-act="bases">🏠 Home bases & distances</button>
       <a class="btn block" style="margin-bottom:12px" href="${esc(S.data.sheetUrl)}" target="_blank" rel="noopener">📄 Open my spreadsheet</a>
       <div class="box help"><h3>💗 How health works</h3>
@@ -1331,15 +1693,44 @@
       case 'plan-save': {
         const what = $('#planWhat').value.trim() || 'Plans', when = $('#planDate').value;
         closeSheet(); vibrate();
-        save(f, { nextplan: what, nextplandate: when }).then(() => toast(`✅ Booked: ${what}${when ? ' · ' + fmtDate(parseDate(when)) : ''}`)).catch(() => {});
+        const evs = [{ name: f.name, type: 'booked' }];
+        if (f.$.rel.pendingInvite) evs.push({ name: f.name, type: 'invite_yes' });
+        save(f, { nextplan: what, nextplandate: when }).then(() => {
+          addEvents(evs);
+          toast(`✅ Booked: ${what}${when ? ' · ' + fmtDate(parseDate(when)) : ''} · +${XP.booked} XP`);
+        }).catch(() => {});
         break;
       }
       case 'plan-yes': {
         const when = f.$.planDate && f.$.planDays <= 0 ? iso(f.$.planDate) : iso(today());
-        logInteraction(f, /video|call|zoom|facetime/i.test(f.nextplan || '') ? 'call' : 'meet', when);
+        logInteraction(f, /video|call|zoom|facetime/i.test(f.nextplan || '') ? 'call' : 'meet', when, [{ name: f.name, type: 'happened', date: when }]);
         if (f.$.hasPlan) save(f, { nextplan: '', nextplandate: '' }).catch(() => {});
         break;
       }
+      case 'plan-they': case 'plan-me': {
+        const they = a.dataset.act === 'plan-they';
+        save(f, { nextplan: '', nextplandate: '' }).then(prev => {
+          const evs = addEvents([{ name: f.name, type: they ? 'they_cancelled' : 'i_cancelled' }]);
+          toast(they ? `Noted: ${f.name.split(' ')[0]} cancelled` : 'Plan cleared', { undo: () => { save(f, prev).catch(() => {}); removeEventsLocal(evs); } });
+        }).catch(() => {});
+        break;
+      }
+      case 'inv-reply': {
+        if (v === 'yes') { openSheet('book', { row: f._row }); break; }
+        const evs = addEvents([{ name: f.name, type: v === 'declined' ? 'invite_declined' : 'invite_noreply' }]);
+        toast(v === 'declined' ? 'Noted: they said no this time' : 'Noted: no reply', { undo: () => removeEventsLocal(evs) });
+        break;
+      }
+      case 'tier-move': {
+        const from = f.$.tier;
+        save(f, { tier: v }).then(prev => {
+          const evs = addEvents([{ name: f.name, type: +v > from ? 'tier_down' : 'tier_up', note: `${from}→${v}` }]);
+          toast(`🎚️ ${f.name.split(' ')[0]} is now tier ${v}`, { undo: () => { save(f, prev).catch(() => {}); removeEventsLocal(evs); } });
+        }).catch(() => {});
+        break;
+      }
+      case 'tier-keep': addEvents([{ name: f.name, type: 'tier_keep' }]); toast('👍 Keeping them where they are'); break;
+      case 'progress': openSheet('progress'); break;
       case 'plan-no': {
         if (S.sheet && S.sheet.kind === 'book') closeSheet();
         save(f, { nextplan: '', nextplandate: '' }).then(prev => toast('Plan cleared', { undo: () => save(f, prev) })).catch(() => {});
@@ -1402,6 +1793,13 @@
       $('#friendList').innerHTML = (() => { const l = filteredFriends(); return l.length ? l.map(card).join('') : emptyState('🔍', 'No matches', 'Try a different word, or tap 🏷️ to see every tag.'); })();
     }
   });
+
+  // Chart bars: show the week's value on hover, focus or tap.
+  ['pointerover', 'focusin', 'click'].forEach(t => document.addEventListener(t, e => {
+    const bar = e.target.closest && e.target.closest('[data-tip]');
+    const tip = $('#chartTip');
+    if (bar && tip) tip.textContent = bar.dataset.tip;
+  }));
 
   document.addEventListener('keydown', e => {
     const el = e.target;
@@ -1467,8 +1865,9 @@
     });
     closeSheet(); render(); confetti(); vibrate();
     const send = key => write('updateMany', JSON.stringify(updates.map(u => ({ row: u.row, name: u.name, changes: u[key] }))));
-    send('changes').then(() => toast(`💌 Marked ${plural(list.length, 'friend')} as invited`, {
-      undo: () => { updates.forEach(u => { Object.assign(u.f, u.prev); compute(u.f); }); render(); send('prev').catch(err => toast('⚠️ ' + err.message)); }
+    const evs = addEvents(list.map(f => ({ name: f.name, type: 'invite', note: f.$.tier ? 't' + f.$.tier : '' })));
+    send('changes').then(() => toast(`💌 Marked ${plural(list.length, 'friend')} as invited · +${list.length * XP.invite} XP`, {
+      undo: () => { updates.forEach(u => { Object.assign(u.f, u.prev); compute(u.f); }); removeEventsLocal(evs); render(); send('prev').catch(err => toast('⚠️ ' + err.message)); }
     })).catch(err => { updates.forEach(u => { Object.assign(u.f, u.prev); compute(u.f); }); render(); toast('⚠️ ' + err.message); });
   }
 
