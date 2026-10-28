@@ -289,7 +289,7 @@
   <script>
     // Safety net: runs before the app, so a failure shows a reason instead of an endless spinner.
     // Written in old-style JavaScript on purpose, so it works even if the main code doesn't.
-    var EXPECTED_LINES = 2009; // how many lines the app's main code has
+    var EXPECTED_LINES = 2012; // how many lines the app's main code has
     window.__started = false;
     window.__loaded = false;
     function bootError(msg) {
@@ -315,7 +315,8 @@
       var where = '';
       try {
         // Show the line that broke, so it can be found and fixed.
-        var lines = document.documentElement.outerHTML.split('\n'), n = e.lineno || 0;
+        var scripts = document.getElementsByTagName('script'), main = scripts[scripts.length - 1];
+        var lines = (main && main.text ? main.text : '').split('\n'), n = e.lineno || 0;
         if (n) where = '\n\nNear line ' + n + ':\n' + lines.slice(Math.max(0, n - 2), n + 1).join('\n').slice(0, 500);
       } catch (x) {}
       bootError('Error: ' + (e.message || 'unknown') + (e.lineno ? ' (line ' + e.lineno + ')' : '') + where);
@@ -353,6 +354,9 @@
   }
   const CACHE_KEY = 'socialos.v2';
   const CLIENT_VERSION = '2026-10-28'; // must match APP_VERSION in Code.gs
+  // Web addresses are built from this instead of being typed out in full: when Google serves the page,
+  // anything after two slashes on a line can be cut off as if it were a comment, which breaks quoted text.
+  const WEB = 'https:' + String.fromCharCode(47, 47);
 
   /* ───────────── State ───────────── */
   const S = {
@@ -1611,7 +1615,7 @@
         ${fieldInput(f, 'address', 'Address', { type: 'textarea' })}
         ${S.cols.address2 ? fieldInput(f, 'address2', 'Address (2nd column)', { type: 'textarea' }) : ''}
         ${addr ? `<div class="links"><button class="btn grow" data-act="copy" data-text="${esc(addr)}">📋 Copy address</button>
-          <a class="btn grow" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}" target="_blank" rel="noopener">🗺️ Open map</a></div>` : ''}
+          <a class="btn grow" href="${WEB}www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}" target="_blank" rel="noopener">🗺️ Open map</a></div>` : ''}
       </details>
 
       <details class="box fold" data-box="notes" ${S.openBoxes.has('notes') ? 'open' : ''}><summary><h3>📝 Notes</h3></summary>
@@ -1629,7 +1633,7 @@
         ${S.data.columns.filter(c => !['photo'].includes(c.key)).map(c => c.computed
           ? `<div class="kv small" style="padding:6px 4px;border-bottom:1px solid var(--border)"><span class="muted">${esc(c.label)} 🔒</span><b>${esc(f[c.key]) || '—'}</b></div>`
           : fieldInput(f, c.key, c.label, { type: c.date ? 'date' : undefined })).join('')}
-        ${fieldInput(f, 'photo', 'Photo link', { placeholder: 'https://…' })}
+        ${fieldInput(f, 'photo', 'Photo link', { placeholder: 'Paste a link to a photo' })}
       </div></details>
 
       <a class="btn block" href="${esc(sheetLink)}" target="_blank" rel="noopener">📄 Open this row in the spreadsheet</a>`;
@@ -1847,11 +1851,11 @@
     if (S.leaflet) return S.leaflet;
     const css = document.createElement('link');
     css.rel = 'stylesheet';
-    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    css.href = WEB + 'cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
     document.head.appendChild(css);
     S.leaflet = new Promise((resolve, reject) => {
       const js = document.createElement('script');
-      js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+      js.src = WEB + 'cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
       js.onload = resolve;
       js.onerror = () => { S.leaflet = null; reject(new Error('blocked')); };
       document.head.appendChild(js);
@@ -1869,7 +1873,7 @@
     }
     if (!S.map) {
       S.map = L.map('map', { zoomControl: false, attributionControl: true }).setView([54.2, -2.5], 5);
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      L.tileLayer(WEB + 'tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19, attribution: '© OpenStreetMap contributors'
       }).addTo(S.map);
       S.layer = L.layerGroup().addTo(S.map);
