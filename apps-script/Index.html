@@ -256,7 +256,7 @@
     <div class="nearby" id="nearby" hidden><div class="nearby-inner" id="nearbyList"></div></div>
   </div>
 
-  <button class="fab" data-act="add" aria-label="Add a friend">+</button>
+  <button class="fab" data-act="quick" aria-label="Log a catch-up">⚡</button>
 
   <nav class="tabbar"><div class="tabbar-inner">
     <button class="tab" data-tab="today"><span class="ico">🏡</span>Today<span class="badge" id="todayBadge" hidden></span></button>
@@ -279,8 +279,15 @@
     inviteGoal: { 1: 365, 2: 150, 3: 120, 4: 60, 5: 12, 6: 10 }
   };
   const MAX_SEE_GOAL = 1095;   // never ask to see anyone less than once every 3 years
-  const BOOKED_FLOOR = 85;     // a booked plan keeps the "seen" score at least this high
-  const WEIGHTS = { contact: 0.6, seen: 0.4 }; // same split as the Friend Pulse formula in your sheet
+  // Friendship battery: every catch-up tops it up and it slowly drains.
+  // In person counts most; on their own, messages can only fill it so far, calls a bit more, video more again.
+  const BATTERY = {
+    points: { meet: 100, video: 60, call: 45, message: 25 },
+    caps: { message: 40, call: 60, video: 75 },
+    capsFar: { message: 40, call: 70, video: 90 } // friends abroad or 5+ hours away, where video is the realistic option
+  };
+  const PLAN_FLOOR = 70;       // with a plan in the diary, a friendship counts as on track
+  const AUTO_CONFIRM_DAYS = 2; // plans are assumed to have happened this many days after the date
   const INVITE_SNOOZE = 14;    // after inviting someone, don't nag about them for this many days
   const NEAR_KM = 30;          // how close counts as "near" a home base or place
   // Distance from your current home base → the Rules sheet's proximity bands.
@@ -293,7 +300,7 @@
 
   /* ───────────── State ───────────── */
   const S = {
-    data: null, friends: [], byRow: {}, cols: {}, prefs: { bases: [], current: '', autoDistance: true }, openPlaces: new Set(), log: [], logByName: {}, weeks: [],
+    data: null, friends: [], byRow: {}, cols: {}, prefs: { bases: [], current: '', autoDistance: true }, openPlaces: new Set(), log: [], logByName: {}, weeks: [], cal: [], quick: null,
     tab: 'today', todayFilter: 'all',
     query: '', tiers: new Set(), status: '', sort: 'priority',
     datesView: 'birthdays', sheet: null,
@@ -391,12 +398,41 @@
   const tierColor = t => t ? `var(--t${Math.min(t, 6)})` : 'var(--muted)';
   const healthColor = h => h == null ? 'var(--muted)' : h >= 70 ? 'var(--good)' : h >= 40 ? 'var(--mid)' : 'var(--bad)';
 
-  // 100 when it's just happened, 70 right on the goal, 0 at twice the goal.
-  function scoreFor(days, goal) {
-    if (!goal) return null;
-    if (days == null) return 0;
-    const r = days / goal;
-    return r <= 1 ? 100 - 30 * r : Math.max(0, 70 - 70 * (r - 1));
+  // Which battery channel each logged event feeds.
+  const CHANNEL = { meet: 'meet', video: 'video', call: 'call', message: 'message', reached: 'message', invite: 'message', invited_me: 'message' };
+
+  // Catch-ups for one friend: the history log, plus the dates in the sheet (which cover the time before the log existed).
+  function channelEvents(f) {
+    const evs = ((S.logByName || {})[String(f.name).toLowerCase()] || []).filter(e => CHANNEL[e.type]).map(e => ({ ch: CHANNEL[e.type], date: e.date }));
+    const add = (raw, ch, clash) => {
+      const d = parseDate(raw);
+      if (d && !d.noYear && !evs.some(e => e.date === iso(d) && clash.includes(e.ch))) evs.push({ ch, date: iso(d) });
+    };
+    add(f.lastseenvideocalled, 'meet', ['meet']);
+    add(f.lastcalled, 'call', ['call', 'video']);
+    add(f.lastcontacted, 'message', ['meet', 'call', 'video', 'message']);
+    return evs;
+  }
+
+  // Each catch-up adds points that halve over time: in-person ones over the "see" goal,
+  // messages over the contact goal, calls and video in between.
+  function battery(evs, contactGoal, seeGoal, far) {
+    const mid = Math.sqrt(contactGoal * seeGoal);
+    const half = { meet: seeGoal, video: mid, call: mid, message: contactGoal };
+    const sum = { meet: 0, video: 0, call: 0, message: 0 };
+    const t = today();
+    evs.forEach(e => {
+      const age = Math.max(0, daysBetween(parseDate(e.date), t));
+      sum[e.ch] += BATTERY.points[e.ch] * Math.pow(0.5, age / half[e.ch]);
+    });
+    const caps = far ? BATTERY.capsFar : BATTERY.caps;
+    let remote = Math.min(caps.message, sum.message);
+    remote = Math.min(caps.call, remote + sum.call);
+    remote = Math.min(caps.video, remote + sum.video);
+    const inPerson = Math.min(100, sum.meet);
+    // Remote contact tops up the part of the battery that in-person time hasn't filled.
+    const topUp = remote * (1 - inPerson / 100);
+    return { inPerson, remote, topUp, remoteCap: caps.video, total: Math.min(100, inPerson + topUp), sum };
   }
 
   function compute(f) {
@@ -415,10 +451,10 @@
     const seeGoal = tr ? Math.min(MAX_SEE_GOAL, Math.max(1, Math.round(pr.inviteGoal * tr.seeMultiplier))) : null;
 
     const dMsg = daysSince(f.lastcontacted), dSeen = daysSince(f.lastseenvideocalled), dCall = daysSince(f.lastcalled);
-    // A call or video chat counts as half a visit (three quarters for friends far away).
-    const callCredit = prox && prox <= 2 ? 0.75 : 0.5;
+    const far = !!prox && prox <= 2;
     const dContact = minN(dMsg, dSeen, dCall);
-    const dSeenEff = minN(dSeen, dCall == null ? null : Math.round(dCall / callCredit));
+    const dSeenEff = dSeen;
+    const dLive = minN(dSeen, dCall); // last time you actually saw or spoke to them
 
     const planDate = parseDate(f.nextplandate);
     const planDays = planDate ? daysBetween(today(), planDate) : null;
@@ -426,10 +462,8 @@
     const booked = hasPlan && (planDays == null || planDays >= 0);
     const planPast = hasPlan && planDays != null && planDays < 0;
 
-    const contactScore = scoreFor(dContact, contactGoal);
-    let seeScore = scoreFor(dSeenEff, seeGoal);
-    if (booked && seeScore != null) seeScore = Math.max(seeScore, BOOKED_FLOOR);
-    const health = tier ? Math.round(contactScore * WEIGHTS.contact + seeScore * WEIGHTS.seen) : null;
+    const bat = tier ? battery(channelEvents(f), contactGoal, seeGoal, far) : null;
+    const health = tier ? Math.round(Math.max(bat.total, booked ? PLAN_FLOOR : 0)) : null;
     const dInvited = daysSince(f.lastinvited);
     const recentlyInvited = dInvited != null && dInvited < INVITE_SNOOZE && !booked;
 
@@ -439,13 +473,12 @@
     // Spend your energy where it's returned: flaky friends get nudged a bit less.
     const weight = (tier ? 7 - tier : 0) * (rel.attempts >= RELIABILITY_MIN ? 0.5 + 0.5 * rel.reliability : 1);
     const needsMessage = !!tier && contactRatio >= 1;
-    const needsBooking = !!tier && !booked && !recentlyInvited && seeRatio >= 1;
+    // Due a meet-up: not seen in person for the goal, and calls/video aren't keeping it topped up.
+    const needsBooking = !!tier && !booked && !recentlyInvited && seeRatio >= 1 && bat.total < 70;
 
     f.$ = {
       rel, tier, prox, sheetProx, proxAuto, km, loc, dInvited, recentlyInvited, contactRatio, seeRatio, tierLabel: tr ? tr.label : '', geography: prox ? proxRule(prox).geography : '',
-      contactGoal, seeGoal, callCredit, dMsg, dSeen, dCall, dContact, dSeenEff,
-      contactScore: contactScore == null ? null : Math.round(contactScore),
-      seeScore: seeScore == null ? null : Math.round(seeScore), health,
+      contactGoal, seeGoal, far, bat, dMsg, dSeen, dCall, dContact, dSeenEff, dLive, health,
       planDate, planDays, hasPlan, booked, planPast,
       needsMessage, needsBooking,
       priority: weight * Math.max(needsMessage ? contactRatio : 0, needsBooking ? seeRatio : 0, Math.max(contactRatio, seeRatio) * 0.1),
@@ -493,7 +526,7 @@
   }
 
   /* ───────────── History, reliability & game ───────────── */
-  const XP = { message: 5, call: 10, meet: 25, invite: 5, reached: 5, booked: 10, happened: 15, invite_declined: 2 };
+  const XP = { message: 5, call: 10, video: 15, meet: 25, invite: 5, reached: 5, invited_me: 5, booked: 10, happened: 15, invite_declined: 2 };
   const BONUS = { reconnect: 20, birthday: 10 };
   const QUEST_XP = 30;
   const WEEK_GOAL_XP = 40;      // a week keeps your streak alive at this much XP
@@ -503,27 +536,27 @@
   const distinct = ev => new Set(ev.map(e => e.name.toLowerCase())).size;
   const QUESTS = [
     { label: 'See 2 friends in person', goal: 2, count: ev => distinct(ev.filter(e => e.type === 'meet')) },
-    { label: 'Message or call 5 different friends', goal: 5, count: ev => distinct(ev.filter(e => e.type === 'message' || e.type === 'call')) },
+    { label: 'Message or call 5 different friends', goal: 5, count: ev => distinct(ev.filter(e => ['message', 'call', 'video'].includes(e.type))) },
     { label: 'Reconnect with someone you haven’t seen in 6+ months', goal: 1, count: ev => ev.filter(e => /reconnect/.test(e.note)).length },
-    { label: 'Call a friend who lives far away', goal: 1, count: ev => ev.filter(e => e.type === 'call' && /far/.test(e.note)).length },
+    { label: 'Call or video a friend who lives far away', goal: 1, count: ev => ev.filter(e => (e.type === 'call' || e.type === 'video') && /far/.test(e.note)).length },
     { label: 'Invite 3 people to something', goal: 3, count: ev => ev.filter(e => e.type === 'invite').length },
-    { label: 'Get a plan in the diary', goal: 1, count: ev => ev.filter(e => e.type === 'booked').length },
-    { label: 'Catch up with 3 tier 1–2 friends', goal: 3, count: ev => distinct(ev.filter(e => /\bt[12]\b/.test(e.note) && ['message', 'call', 'meet'].includes(e.type))) }
+    { label: 'Put a plan in the diary', goal: 1, count: ev => ev.filter(e => e.type === 'booked').length },
+    { label: 'Catch up with 3 tier 1–2 friends', goal: 3, count: ev => distinct(ev.filter(e => /\bt[12]\b/.test(e.note) && ['message', 'call', 'video', 'meet'].includes(e.type))) }
   ];
   const countType = (ev, t) => ev.filter(e => e.type === t).length;
   const BADGES = [
     { e: '👣', name: 'First steps', desc: 'Log a catch-up', goal: 1, value: ev => ev.filter(e => XP[e.type]).length },
     { e: '🦋', name: 'Social butterfly', desc: 'See friends 25 times', goal: 25, value: ev => countType(ev, 'meet') },
-    { e: '☎️', name: 'Phone a friend', desc: '10 calls', goal: 10, value: ev => countType(ev, 'call') },
+    { e: '☎️', name: 'Phone a friend', desc: '10 calls or video chats', goal: 10, value: ev => countType(ev, 'call') + countType(ev, 'video') },
     { e: '🎉', name: 'Party planner', desc: 'Invite 6+ in a day', goal: 6, value: ev => Math.max(0, ...Object.values(ev.filter(e => e.type === 'invite').reduce((m, e) => (m[e.date] = (m[e.date] || 0) + 1, m), {}))) },
     { e: '🔁', name: 'Reconnector', desc: '5 long-lost catch-ups', goal: 5, value: ev => ev.filter(e => /reconnect/.test(e.note)).length },
     { e: '🎂', name: 'Birthday hero', desc: '3 birthday messages', goal: 3, value: ev => ev.filter(e => /birthday/.test(e.note)).length },
     { e: '📅', name: 'Diary keeper', desc: '10 plans that happened', goal: 10, value: ev => countType(ev, 'happened') },
-    { e: '🌍', name: 'Long distance', desc: '5 calls to far-away friends', goal: 5, value: ev => ev.filter(e => e.type === 'call' && /far/.test(e.note)).length },
-    { e: '🧲', name: 'Magnetic', desc: 'Friends got in touch 10 times', goal: 10, value: ev => countType(ev, 'reached') },
+    { e: '🌍', name: 'Long distance', desc: '5 calls or video chats with far-away friends', goal: 5, value: ev => ev.filter(e => (e.type === 'call' || e.type === 'video') && /far/.test(e.note)).length },
+    { e: '🧲', name: 'Magnetic', desc: 'Friends got in touch or invited you 10 times', goal: 10, value: ev => countType(ev, 'reached') + countType(ev, 'invited_me') },
     { e: '🔥', name: 'On a roll', desc: '4-week streak', goal: 4, value: (ev, g) => g.best },
     { e: '🏆', name: 'Unstoppable', desc: '12-week streak', goal: 12, value: (ev, g) => g.best },
-    { e: '💯', name: 'Centurion', desc: '100 catch-ups logged', goal: 100, value: ev => ev.filter(e => ['message', 'call', 'meet'].includes(e.type)).length }
+    { e: '💯', name: 'Centurion', desc: '100 catch-ups logged', goal: 100, value: ev => ev.filter(e => ['message', 'call', 'video', 'meet'].includes(e.type)).length }
   ];
 
   function weekStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
@@ -545,21 +578,22 @@
     const evs = (S.logByName || {})[String(f.name).toLowerCase()] || [];
     const since = n => iso(new Date(today() - n * DAY));
     const c = (type, from) => evs.filter(e => e.type === type && (!from || e.date >= from)).length;
+    const theyPlanned = c('invited_me');
     const kept = c('happened'), yes = c('invite_yes'), cancelled = c('they_cancelled'), ghosted = c('invite_noreply'), declined = c('invite_declined');
-    const good = kept + yes, bad = cancelled + ghosted + declined * 0.5;
+    const good = kept + yes + theyPlanned, bad = cancelled + ghosted + declined * 0.5;
     const d90 = since(90);
     // Messages and invites can go unanswered; calls and meet-ups can't, so they show it's two-way.
-    const mine90 = c('message', d90) + c('invite', d90), theirs90 = c('reached', d90), meets90 = c('meet', d90) + c('call', d90);
+    const mine90 = c('message', d90) + c('invite', d90), theirs90 = c('reached', d90) + c('invited_me', d90), meets90 = c('meet', d90) + c('call', d90) + c('video', d90);
     // An invite is waiting for an answer until something else happens with them (within 30 days).
     let pendingInvite = null;
     for (let i = evs.length - 1; i >= 0; i--) {
       const e = evs[i];
-      if (['invite_yes', 'invite_declined', 'invite_noreply', 'booked', 'meet', 'happened'].includes(e.type)) break;
+      if (['invite_yes', 'invite_declined', 'invite_noreply', 'booked', 'meet', 'video', 'happened'].includes(e.type)) break;
       if (e.type === 'invite') { if (e.date >= since(30)) pendingInvite = e; break; }
     }
     return {
-      kept, yes, cancelled, ghosted, declined, invites: c('invite', since(365)),
-      attempts: kept + yes + cancelled + ghosted + declined,
+      kept, yes, theyPlanned, cancelled, ghosted, declined, invites: c('invite', since(365)),
+      attempts: kept + yes + theyPlanned + cancelled + ghosted + declined,
       reliability: (good + 1) / (good + bad + 2),
       mine90, theirs90, meets90, pendingInvite,
       recentTierCheck: evs.some(e => /^tier_/.test(e.type) && e.date >= d90)
@@ -577,6 +611,7 @@
     const why = [];
     if (r.invites) why.push(`invited ${r.invites}×`);
     if (r.kept + r.yes) why.push(`${r.kept + r.yes} said yes or showed up`);
+    if (r.theyPlanned) why.push(`they organised ${r.theyPlanned}×`);
     if (r.cancelled) why.push(`${r.cancelled} cancelled`);
     if (r.ghosted) why.push(`${r.ghosted} no reply`);
     const flaky = r.attempts >= RELIABILITY_MIN && r.reliability < 0.4;
@@ -673,6 +708,163 @@
     }, 2500);
   }
 
+  /* ───────────── Easy logging ───────────── */
+  const TYPE_ORDER = ['meet', 'video', 'call', 'message', 'reached'];
+  const TYPE_EMOJI = { meet: '🤝', video: '🎥', call: '📞', message: '💬', reached: '📥' };
+  const TYPE_WORDS = [
+    ['reached', /\b(heard from|(texted|messaged|whatsapped|emailed|dmed|dm'd) me|got in touch)\b/],
+    ['video', /\b(video|videoed|facetime|facetimed|zoom|zoomed|teams|skype|skyped|vc)\b/],
+    ['call', /\b(call|called|phone|phoned|rang|ring)\b/],
+    ['message', /\b(text|texted|message|messaged|whatsapp|whatsapped|dm|dmed|emailed|voice note|wrote to)\b/],
+    ['meet', /\b(saw|see|seen|met|meet|dinner|lunch|brunch|breakfast|drinks|drink|pub|coffee|walk|hung out|hang|visited|visit|party|wedding|cinema|gig|climbing|run|stayed|bbq|picnic|played|game)\b/]
+  ];
+  const WEEKDAYS = [/\b(sun|sunday)\b/, /\b(mon|monday)\b/, /\b(tue|tues|tuesday)\b/, /\b(wed|weds|wednesday)\b/, /\b(thu|thur|thurs|thursday)\b/, /\b(fri|friday)\b/, /\b(sat|saturday|weekend)\b/];
+  function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function clauseDate(c) {
+    const t = today();
+    if (/\b(today|tonight|this morning|this afternoon|this evening)\b/.test(c)) return iso(t);
+    if (/\b(yesterday|last night)\b/.test(c)) return iso(addDays(t, -1));
+    let m = c.match(/\b(\d+) days? ago\b/);
+    if (m) return iso(addDays(t, -m[1]));
+    m = c.match(/\b(\d{1,2})[\/.](\d{1,2})\b/);
+    if (m) { let d = new Date(t.getFullYear(), m[2] - 1, +m[1]); if (d > t) d = new Date(t.getFullYear() - 1, m[2] - 1, +m[1]); return iso(d); }
+    for (let wd = 0; wd < 7; wd++) if (WEEKDAYS[wd].test(c)) { const back = (t.getDay() - wd + 7) % 7; return iso(addDays(t, -back)); }
+    return null;
+  }
+  // "dinner with Sam and Jo on Saturday, called Mum, video with Chen yesterday"
+  function parseQuickLog(text) {
+    const people = S.friends.map(f => {
+      const full = f.name.toLowerCase().trim();
+      return { f, full, first: full.split(/\s+/)[0] };
+    });
+    const firstCount = {};
+    people.forEach(p => { firstCount[p.first] = (firstCount[p.first] || 0) + 1; });
+    const out = [];
+    let type = null, date = null;
+    text.toLowerCase().split(/[,;\n]+|\.\s+|\bthen\b/).forEach(raw => {
+      let c = ' ' + raw + ' ';
+      const t = TYPE_WORDS.find(([, re]) => re.test(c));
+      if (t) type = t[0];
+      date = clauseDate(c) || date;
+      // Full names first, then first names; ambiguous first names keep every candidate.
+      const found = [];
+      people.slice().sort((a, b) => b.full.length - a.full.length).forEach(p => {
+        if (p.full.includes(' ') && wordIn(c, p.full)) { found.push([p.f]); c = c.replace(p.full, ' '); }
+      });
+      Object.keys(firstCount).filter(fn => fn.length >= 2 && wordIn(c, fn)).forEach(fn => {
+        found.push(people.filter(p => p.first === fn).map(p => p.f).sort((a, b) => (a.$.tier || 9) - (b.$.tier || 9)));
+        c = c.replace(new RegExp('(^|[^a-z])' + reEsc(fn) + '(?=[^a-z]|$)'), '$1 ');
+      });
+      found.forEach(cands => out.push({ cands, pick: 0, type, date: date || iso(today()) }));
+    });
+    // A later clause can set the type for names that came before it ("Sam and Jo, dinner").
+    for (let i = out.length - 1; i >= 0; i--) if (!out[i].type) out[i].type = (out[i + 1] && out[i + 1].type) || 'meet';
+    const seen = new Set();
+    return out.filter(e => { const k = e.cands[0]._row + e.type + e.date; if (seen.has(k)) return false; seen.add(k); return true; });
+  }
+  const reEsc = w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const wordIn = (text, w) => new RegExp('(^|[^a-z])' + reEsc(w) + '([^a-z]|$)').test(text);
+
+  function dayLabel(day) {
+    const n = daysBetween(parseDate(day), today());
+    return n === 0 ? 'today' : n === 1 ? 'yesterday' : n < 7 ? parseDate(day).toLocaleDateString('en-GB', { weekday: 'short' }) : fmtDate(parseDate(day));
+  }
+
+  // Logs several catch-ups at once with a single undo.
+  function logMany(entries, label) {
+    if (!entries.length) return;
+    vibrate();
+    if (entries.some(e => e.type === 'meet')) confetti();
+    Promise.all(entries.map(e => applyLog(e.f, e.type, e.date, { note: e.note || '', extra: e.extra || [] }))).then(items => {
+      const xp = items.reduce((sum, i) => sum + i.evs.reduce((a, e) => a + e.xp, 0), 0);
+      toast(`${label || '✅ Logged'} ${plural(items.length, 'catch-up')} · +${xp} XP`, { undo: () => undoLogs(items) });
+    }).catch(() => {});
+  }
+
+  // Plans whose date has passed are assumed to have happened. You can say otherwise from Today.
+  function autoConfirmPlans() {
+    if (S.prefs.autoConfirm === false || S.autoConfirmDone) return;
+    S.autoConfirmDone = true;
+    const due = S.friends.filter(f => f.$.planPast && f.$.planDays <= -AUTO_CONFIRM_DAYS);
+    if (!due.length) return;
+    logMany(due.map(f => {
+      const video = /video|call|zoom|facetime|teams/i.test(f.nextplan || '');
+      const day = iso(f.$.planDate);
+      // Remember the sheet's previous dates so "it didn't happen" can put them back.
+      const prev = raw => { const d = parseDate(raw); return d && !d.noYear ? iso(d) : '-'; };
+      return { f, type: video ? 'video' : 'meet', date: day, note: 'auto',
+        extra: [{ name: f.name, type: 'happened', date: day, note: `auto ps:${prev(f.lastseenvideocalled)} pc:${prev(f.lastcalled)}` }] };
+    }), '🤖 Assumed your plans happened:');
+  }
+  // Auto-logged plans from the last week, so you can correct any that didn't happen.
+  function autoLogged() {
+    let ack = [];
+    try { ack = JSON.parse(localStorage.getItem('socialos.ack') || '[]'); } catch (e) {}
+    const since = iso(addDays(today(), -7));
+    return S.log.filter(e => e.type === 'happened' && /auto/.test(e.note) && e.date >= since && !ack.includes(e.id))
+      .map(e => ({ e, f: S.friends.find(f => f.name.toLowerCase() === e.name.toLowerCase()) })).filter(x => x.f);
+  }
+  function ackAuto(id) {
+    try { const a = JSON.parse(localStorage.getItem('socialos.ack') || '[]'); a.push(id); localStorage.setItem('socialos.ack', JSON.stringify(a.slice(-200))); } catch (e) {}
+  }
+  // Undo an auto-logged plan: remove that day's events and record who cancelled.
+  function didntHappen(f, happenedEvent, who) {
+    const day = happenedEvent.date;
+    const evs = S.log.filter(e => e.name.toLowerCase() === f.name.toLowerCase() && e.date === day && /auto/.test(e.note));
+    removeEventsLocal(evs);
+    ackAuto(happenedEvent.id);
+    // Put the sheet's dates back to what they were before the plan was assumed.
+    const was = key => { const m = happenedEvent.note.match(new RegExp(key + ':(\\S+)')); return m && m[1] !== '-' ? m[1] : ''; };
+    const changes = {};
+    if (iso(parseDate(f.lastseenvideocalled) || today()) === day) changes.lastseenvideocalled = was('ps');
+    if (iso(parseDate(f.lastcalled) || today()) === day) changes.lastcalled = was('pc');
+    if (Object.keys(changes).length) save(f, changes).catch(() => {});
+    addEvents([{ name: f.name, type: who === 'them' ? 'they_cancelled' : 'i_cancelled', date: day }]);
+    toast(who === 'them' ? `Noted: ${f.name.split(' ')[0]} cancelled` : 'Removed');
+  }
+
+  // Google Calendar: past events with a friend become catch-ups, future ones become plans.
+  async function checkCalendar(force) {
+    if (!S.prefs.useCalendar || (S.calScanned && !force)) return;
+    S.calScanned = true;
+    try {
+      S.calRaw = JSON.parse(await api('scanCalendar', 14, 60));
+      S.cal = matchCalendar(S.calRaw);
+      render();
+    } catch (e) { toast('⚠️ Calendar: ' + e.message); }
+  }
+  function matchCalendar(events) {
+    const firstCount = {};
+    S.friends.forEach(f => { const fn = f.name.toLowerCase().split(/\s+/)[0]; firstCount[fn] = (firstCount[fn] || 0) + 1; });
+    const used = new Set(S.log.map(e => (e.note.match(/cal:(\S+)/) || [])[1]).filter(Boolean));
+    const dismissed = new Set(S.prefs.calDismissed || []);
+    const t = iso(today());
+    const out = [];
+    events.forEach(ev => {
+      if (used.has(ev.id) || dismissed.has(ev.id) || /birthday|bday/i.test(ev.title)) return;
+      const text = ' ' + ev.title.toLowerCase() + ' ';
+      S.friends.forEach(f => {
+        const full = f.name.toLowerCase().trim(), first = full.split(/\s+/)[0], email = String(f.email || '').toLowerCase().trim();
+        const hit = (email && ev.guests.includes(email)) || wordIn(text, full) || (firstCount[first] === 1 && first.length >= 3 && wordIn(text, first));
+        if (!hit) return;
+        const past = ev.date < t || (ev.date === t && ev.ended);
+        if (past && iso(parseDate(f.lastseenvideocalled) || new Date(0)) >= ev.date && !ev.video) return;
+        if (!past && f.$.planDate && iso(f.$.planDate) === ev.date) return;
+        out.push({ key: ev.id + '|' + f._row, id: ev.id, f, title: ev.title, date: ev.date, past, video: ev.video, on: true });
+      });
+    });
+    return out.sort((a, b) => a.date < b.date ? 1 : -1);
+  }
+  function applyCalendar(list) {
+    const past = list.filter(c => c.past), future = list.filter(c => !c.past);
+    if (past.length) logMany(past.map(c => ({ f: c.f, type: c.video ? 'video' : 'meet', date: c.date, note: 'cal:' + c.id })), '📆 From your calendar:');
+    future.forEach(c => save(c.f, { nextplan: c.title, nextplandate: c.date }).then(() => addEvents([{ name: c.f.name, type: 'booked', note: 'cal:' + c.id }])).catch(() => {}));
+    if (future.length) toast(`📅 Added ${plural(future.length, 'plan')} from your calendar`);
+    const keys = new Set(list.map(c => c.key));
+    S.cal = S.cal.filter(c => !keys.has(c.key));
+    render();
+  }
+
   /* ───────────── Talking to the sheet ───────────── */
   function api(name, ...args) {
     return new Promise((resolve, reject) => {
@@ -698,7 +890,7 @@
     S.cols = {};
     d.columns.forEach(c => { S.cols[c.key] = c; });
     S.geo = Object.assign({}, S.geo, d.geo || {});
-    S.prefs = Object.assign({ bases: [], current: '', autoDistance: true }, d.prefs || {});
+    S.prefs = Object.assign({ bases: [], current: '', autoDistance: true, useCalendar: false, autoConfirm: true, calDismissed: [] }, d.prefs || {});
     S.log = d.log || [];
     S.weeks = d.weeks || [];
     indexLog();
@@ -718,6 +910,8 @@
       if (open) { const f = S.friends.find(x => x.name === open); if (f) S.sheet.row = f._row; }
       render();
       scheduleWeekSave();
+      autoConfirmPlans();
+      checkCalendar();
       if (S.sheet && !(document.activeElement && $('#sheetPanel').contains(document.activeElement))) renderSheet();
       if (S.prefs.current) geocodeMissing();
     }).catch(err => toast('⚠️ ' + err.message)).finally(() => $('#syncBtn').classList.remove('spinning'));
@@ -743,40 +937,53 @@
   }
 
   const LOGS = {
+    video: { field: 'lastcalled', emoji: '🎥', verb: 'Video-called' },
     reached: { field: 'lastcontacted', emoji: '📥', verb: 'Heard from' },
     invite: { field: 'lastinvited', emoji: '💌', verb: 'Invited' },
     message: { field: 'lastcontacted', emoji: '💬', verb: 'Messaged' },
     call: { field: 'lastcalled', emoji: '📞', verb: 'Called' },
     meet: { field: 'lastseenvideocalled', emoji: '🤝', verb: 'Saw' }
   };
+  const notAfter = (raw, day) => { const d = parseDate(raw); return !d || d.noYear || iso(d) <= day; };
+
+  // Updates the sheet's dates and records the event. Older dates still go in the history (they count
+  // towards the battery) without moving the sheet's "last" dates backwards.
+  function applyLog(f, type, day, { extra = [], note = '' } = {}) {
+    const L = LOGS[type], was = f.$;
+    const changes = {};
+    if (notAfter(f[L.field], day)) changes[L.field] = day;
+    if (type !== 'message' && notAfter(f.lastcontacted, day)) changes.lastcontacted = day;
+    if ((type === 'meet' || type === 'video') && was.hasPlan && (!was.planDate || iso(was.planDate) <= day)) { changes.nextplan = ''; changes.nextplandate = ''; }
+    const notes = was.tier ? ['t' + was.tier] : [];
+    if (note) notes.push(note);
+    let xp = XP[type] || 0;
+    const live = ['meet', 'call', 'video'].includes(type);
+    if (live && was.dLive != null && was.dLive >= 180 && notAfter(f[L.field], day)) { notes.push('reconnect'); xp += BONUS.reconnect; }
+    if (type !== 'invite' && was.bday && was.bday.days === 0 && day === iso(today())) { notes.push('birthday'); xp += BONUS.birthday; }
+    if ((type === 'call' || type === 'video') && was.far) notes.push('far');
+    const events = [{ name: f.name, type, date: day, xp, note: notes.join(' ') }, ...extra];
+    if (live && was.rel.pendingInvite) events.push({ name: f.name, type: 'invite_yes', date: day });
+    const saved = Object.keys(changes).length ? save(f, changes) : Promise.resolve({});
+    return saved.then(prev => ({ f, prev, evs: addEvents(events) }));
+  }
+  function undoLogs(items) {
+    items.forEach(i => { if (Object.keys(i.prev).length) save(i.f, i.prev).catch(() => {}); removeEventsLocal(i.evs); });
+  }
+
   function logInteraction(f, type, when, extra = []) {
     const day = when || iso(today());
     const L = LOGS[type];
-    const was = f.$;
-    const newer = raw => { const d = parseDate(raw); return !d || d.noYear || iso(d) <= day; };
-    const changes = {};
-    if (newer(f[L.field])) changes[L.field] = day;
-    if (type !== 'message' && newer(f.lastcontacted)) changes.lastcontacted = day;
-    if (type === 'meet' && f.$.hasPlan && (!f.$.planDate || iso(f.$.planDate) <= day)) { changes.nextplan = ''; changes.nextplandate = ''; }
-    if (!Object.keys(changes).length) return toast(`You’ve already logged something more recent for ${f.name}`);
     vibrate();
     const before = f.$.health;
     if (type === 'meet') confetti();
-    // XP, with bonuses for reconnecting and for birthdays.
-    const notes = was.tier ? ['t' + was.tier] : [];
-    let xp = XP[type] || 0;
-    if ((type === 'meet' || type === 'call') && was.dSeenEff != null && was.dSeenEff >= 180) { notes.push('reconnect'); xp += BONUS.reconnect; }
-    if (type !== 'invite' && was.bday && was.bday.days === 0 && day === iso(today())) { notes.push('birthday'); xp += BONUS.birthday; }
-    if (type === 'call' && was.prox && was.prox <= 2) notes.push('far');
-    const events = [{ name: f.name, type, date: day, xp, note: notes.join(' ') }, ...extra];
-    if ((type === 'meet' || type === 'call') && was.rel.pendingInvite) events.push({ name: f.name, type: 'invite_yes', date: day });
-    save(f, changes).then(prev => {
-      const evs = addEvents(events);
-      const gained = evs.reduce((sum, e) => sum + e.xp, 0);
+    applyLog(f, type, day, { extra }).then(item => {
+      const gained = item.evs.reduce((sum, e) => sum + e.xp, 0);
       const delta = before != null && f.$.health != null && f.$.health !== before ? ` · health ${before} → ${f.$.health}` : '';
-      toast(`${L.emoji} ${L.verb} ${f.name.split(' ')[0]}${delta}${gained ? ` · +${gained} XP` : ''}`, { undo: () => { save(f, prev).catch(() => {}); removeEventsLocal(evs); } });
+      toast(`${L.emoji} ${L.verb} ${f.name.split(' ')[0]}${delta}${gained ? ` · +${gained} XP` : ''}`, { undo: () => undoLogs([item]) });
     }).catch(() => {});
   }
+
+
 
   /* ───────────── Rendering bits ───────────── */
   function hueOf(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
@@ -801,11 +1008,11 @@
   function reasons(f) {
     const $f = f.$, out = [];
     if ($f.planPast) out.push(`<span class="reason warn">❓ Did “${esc(f.nextplan || 'your plan')}” happen?</span>`);
-    else if ($f.booked) out.push(`<span class="reason ok">✅ ${esc(f.nextplan || 'Booked')}${$f.planDate ? ' · ' + fmtDate($f.planDate) : ''}</span>`);
+    else if ($f.booked) out.push(`<span class="reason ok">📅 ${esc(f.nextplan || 'Plan')}${$f.planDate ? ' · ' + fmtDate($f.planDate) : ''}</span>`);
     if ($f.rel.attempts >= RELIABILITY_MIN && $f.rel.reliability < 0.4) out.push(`<span class="reason">🫥 Hard to pin down</span>`);
     if ($f.recentlyInvited) out.push(`<span class="reason ok">💌 Invited ${ago($f.dInvited)}</span>`);
     if ($f.needsMessage) out.push(`<span class="reason warn">💬 ${$f.dContact == null ? 'never logged' : $f.dContact + 'd since contact'} · goal ${$f.contactGoal}d</span>`);
-    if ($f.needsBooking) out.push(`<span class="reason warn">📅 Not seen ${$f.dSeenEff == null ? 'yet' : 'in ' + ago($f.dSeenEff).replace(' ago', '')}</span>`);
+    if ($f.needsBooking) out.push(`<span class="reason warn">🤝 Not seen ${$f.dSeen == null ? 'yet' : 'in ' + ago($f.dSeen).replace(' ago', '')}</span>`);
     if ($f.bday && $f.bday.days <= 14) out.push(`<span class="reason bday">🎂 ${$f.bday.days === 0 ? 'Birthday today!' : 'Birthday ' + inDays($f.bday.days)}</span>`);
     if (S.here && f.$.dist != null) out.push(`<span class="reason">📍 ${f.$.dist < 1 ? '<1' : Math.round(f.$.dist)} km away</span>`);
     return out.length ? `<div class="reasons">${out.join('')}</div>` : '';
@@ -823,11 +1030,12 @@
         ${ring(f.$.health)}
       </div>
       ${reasons(f)}
-      <div class="actions">
-        <button class="act" data-act="log" data-type="message" data-row="${f._row}"><span class="e">💬</span>Messaged</button>
-        <button class="act" data-act="log" data-type="call" data-row="${f._row}"><span class="e">📞</span>Called</button>
+      <div class="actions" style="grid-template-columns:repeat(5,1fr)">
+        <button class="act" data-act="log" data-type="message" data-row="${f._row}"><span class="e">💬</span>Msg</button>
+        <button class="act" data-act="log" data-type="call" data-row="${f._row}"><span class="e">📞</span>Call</button>
+        <button class="act" data-act="log" data-type="video" data-row="${f._row}"><span class="e">🎥</span>Video</button>
         <button class="act" data-act="log" data-type="meet" data-row="${f._row}"><span class="e">🤝</span>Saw</button>
-        <button class="act ${f.$.booked ? 'on' : ''}" data-act="book" data-row="${f._row}"><span class="e">📅</span>${f.$.booked ? 'Booked' : 'Book'}</button>
+        <button class="act ${f.$.booked ? 'on' : ''}" data-act="book" data-row="${f._row}"><span class="e">📅</span>Plan</button>
       </div>
     </article>`;
   }
@@ -977,6 +1185,30 @@
           <div class="row" style="gap:0">${ideas.slice(0, 3).map((f, i) => `<div style="margin-left:${i ? -12 : 0}px">${avatar(f, 'sm')}</div>`).join('')}</div></div></div>`;
     }
 
+    h += `<button class="btn block primary" style="margin-bottom:14px;padding:14px" data-act="quick">⚡ Log catch-ups</button>`;
+    if (S.cal.length) {
+      h += `<div class="banner"><h3>📆 Found in your calendar</h3>${S.cal.slice(0, 8).map(c => `
+        <div class="row" style="margin-top:8px">${avatar(c.f, 'sm')}
+          <div class="grow"><b>${esc(c.f.name)}</b><div class="small muted">${c.past ? (c.video ? '🎥 ' : '🤝 ') : '📅 Plan: '}${esc(c.title)} · ${dayLabel(c.date) === fmtDate(parseDate(c.date)) || !c.past ? fmtDate(parseDate(c.date)) : dayLabel(c.date)}</div></div>
+          <button class="btn" style="padding:8px 10px" data-act="cal-one" data-v="${esc(c.key)}" title="Add">✓</button>
+          <button class="btn" style="padding:8px 10px" data-act="cal-skip" data-v="${esc(c.key)}" title="Not a catch-up">✕</button>
+        </div>`).join('')}
+        <button class="btn primary block" style="margin-top:10px" data-act="cal-all">Add all ${S.cal.length > 8 ? 8 : S.cal.length}</button></div>`;
+    } else if (!S.prefs.useCalendar && !S.prefs.calPromptHidden) {
+      h += `<div class="banner" style="background:var(--surface-2)"><div class="row"><div style="font-size:30px">📆</div>
+        <div class="grow"><b>Log catch-ups from your Google Calendar</b><div class="small muted">Events with a friend’s name become catch-ups or plans. You confirm each one.</div></div></div>
+        <div class="row" style="margin-top:10px"><button class="btn primary grow" data-act="cal-on">Turn on</button><button class="btn" data-act="cal-hide">No thanks</button></div></div>`;
+    }
+    const autos = autoLogged();
+    if (autos.length) {
+      h += `<div class="banner" style="background:var(--surface-2)"><h3>🤖 I assumed these plans happened</h3>${autos.map(({ e, f }) => `
+        <div class="row" style="margin-top:8px">${avatar(f, 'sm')}
+          <div class="grow"><b>${esc(f.name)}</b><div class="small muted">${fmtDate(parseDate(e.date))}</div></div>
+          <button class="btn" style="padding:8px 10px" data-act="auto-ok" data-v="${esc(e.id)}">👍</button>
+          <button class="btn" style="padding:8px 10px" data-act="auto-they" data-v="${esc(e.id)}" data-row="${f._row}">They ✗</button>
+          <button class="btn" style="padding:8px 10px" data-act="auto-me" data-v="${esc(e.id)}" data-row="${f._row}">Me ✗</button>
+        </div>`).join('')}</div>`;
+    }
     h += scoreboard();
     const pending = S.friends.filter(f => f.$.rel.pendingInvite && daysSince(f.$.rel.pendingInvite.date) >= 4);
     if (pending.length) {
@@ -1017,7 +1249,7 @@
 
     const F = S.todayFilter;
     h += `<div class="seg" style="margin-top:18px">
-      ${[['all', 'All'], ['message', '💬 Message'], ['book', '📅 Book'], ['booked', '✅ Booked']].map(([k, label]) => {
+      ${[['all', 'All'], ['message', '💬 Message'], ['book', '🤝 To see'], ['booked', '📅 Plans']].map(([k, label]) => {
         const n = k === 'message' ? msg.length : k === 'book' ? book.length : k === 'booked' ? booked.length : null;
         return `<button class="${F === k ? 'on' : ''}" data-act="today-filter" data-v="${k}">${label}${n ? `<span class="n">${n}</span>` : ''}</button>`;
       }).join('')}</div>`;
@@ -1029,7 +1261,7 @@
     else list = [...new Set([...msg, ...book])].sort((a, b) => b.$.priority - a.$.priority);
 
     if (!list.length) {
-      h += F === 'booked' ? emptyState('🗓️', 'Nothing booked yet', 'Tap 📅 on a friend to note down a plan.')
+      h += F === 'booked' ? emptyState('🗓️', 'No plans yet', 'Tap 📅 on a friend when you’ve got something in the diary, whoever arranged it.')
         : emptyState('🌈', 'All caught up!', 'Nobody is overdue. Go enjoy your day.');
     } else {
       h += list.slice(0, 60).map(card).join('');
@@ -1069,7 +1301,7 @@
     seen: ['Longest since seen', (a, b) => (b.$.dSeenEff ?? 1e6) - (a.$.dSeenEff ?? 1e6)],
     birthday: ['Next birthday', (a, b) => (a.$.bday ? a.$.bday.days : 999) - (b.$.bday ? b.$.bday.days : 999)]
   };
-  const STATUS = [['due', '💬 Message due'], ['book', '📅 Needs booking'], ['booked', '✅ Booked'], ['christmas', '🎄 Christmas list'], ['ideas', '🎁 Has gift ideas'], ['untiered', '❔ No tier']];
+  const STATUS = [['due', '💬 Message due'], ['book', '🤝 Due a meet-up'], ['booked', '📅 Has a plan'], ['christmas', '🎄 Christmas list'], ['ideas', '🎁 Has gift ideas'], ['untiered', '❔ No tier']];
 
   function filteredFriends() {
     let list = S.friends.filter(f => matches(f, S.query));
@@ -1087,6 +1319,7 @@
         <input class="input" id="searchInput" type="search" placeholder="Search anything… try tag:climbing" value="${esc(S.query)}" autocomplete="off">
       </div>
       <div class="scroll-x">
+        <button class="chip" data-act="add">🌱 Add friend</button>
         <button class="chip" data-act="browse">🏷️ All tags & search terms</button>
         ${[1, 2, 3, 4, 5, 6].filter(t => tierCounts[t]).map(t => `<button class="chip ${S.tiers.has(t) ? 'on' : ''}" data-act="tier-filter" data-v="${t}">
           <span class="tier-dot" style="background:${S.tiers.has(t) ? 'currentColor' : tierColor(t)}"></span>Tier ${t}${tierRule(t).label ? ' · ' + esc(tierRule(t).label) : ''} <span class="n">${tierCounts[t]}</span></button>`).join('')}
@@ -1105,7 +1338,7 @@
 
   function miniRow(f, extra = '') {
     const $f = f.$;
-    const why = $f.booked ? `✅ ${esc(f.nextplan || 'Booked')}` : $f.recentlyInvited ? `💌 invited ${ago($f.dInvited)}`
+    const why = $f.booked ? `📅 ${esc(f.nextplan || 'Plan')}` : $f.recentlyInvited ? `💌 invited ${ago($f.dInvited)}`
       : $f.dSeenEff == null ? 'no meet-up logged' : `seen ${ago($f.dSeen ?? $f.dSeenEff)}`;
     return `<div class="list-row" data-open="${f._row}">${avatar(f, 'sm')}
       <div class="grow"><div class="name" style="font-size:16px">${esc(f.name)}</div>
@@ -1192,7 +1425,7 @@
     if (!S.sheet) return;
     const k = S.sheet.kind;
     const html = k === 'friend' ? sheetFriend() : k === 'book' ? sheetBook() : k === 'add' ? sheetAdd()
-      : k === 'progress' ? sheetProgress() : k === 'browse' ? sheetBrowse() : k === 'settings' ? sheetSettings() : k === 'bases' ? sheetBases() : k === 'invite' ? sheetInvite() : '';
+      : k === 'progress' ? sheetProgress() : k === 'quick' ? sheetQuick() : k === 'browse' ? sheetBrowse() : k === 'settings' ? sheetSettings() : k === 'bases' ? sheetBases() : k === 'invite' ? sheetInvite() : '';
     if (!html) return closeSheet();
     $('#sheetPanel').innerHTML = `<button class="close" data-act="close" aria-label="Close">✕</button><div class="grabber"></div>` + html;
   }
@@ -1244,38 +1477,44 @@
         ${f.meeting ? `<div class="small muted">🤝 ${esc(f.meeting)}</div>` : ''}</div>
         ${ring($f.health, 64)}</div>
 
-      <div class="actions" style="margin:0 0 12px;grid-template-columns:repeat(3,1fr)">
+      <div class="actions" style="margin:0 0 12px;grid-template-columns:repeat(4,1fr)">
         <button class="act" data-act="log" data-type="message" data-row="${f._row}"><span class="e">💬</span>Messaged</button>
         <button class="act" data-act="log" data-type="call" data-row="${f._row}"><span class="e">📞</span>Called</button>
+        <button class="act" data-act="log" data-type="video" data-row="${f._row}"><span class="e">🎥</span>Video</button>
         <button class="act" data-act="log" data-type="meet" data-row="${f._row}"><span class="e">🤝</span>Saw</button>
-        <button class="act" data-act="log" data-type="invite" data-row="${f._row}"><span class="e">💌</span>Invited</button>
         <button class="act" data-act="log" data-type="reached" data-row="${f._row}"><span class="e">📥</span>They got in touch</button>
-        <button class="act ${$f.booked ? 'on' : ''}" data-act="book" data-row="${f._row}"><span class="e">📅</span>${$f.booked ? 'Booked' : 'Book'}</button>
+        <button class="act" data-act="log" data-type="invite" data-row="${f._row}"><span class="e">💌</span>I invited them</button>
+        <button class="act ${$f.booked ? 'on' : ''}" data-act="book" data-row="${f._row}"><span class="e">📅</span>${$f.booked ? 'Plan ✓' : 'Plan'}</button>
       </div>
       ${phone ? `<div class="links" style="margin-bottom:12px">
         <a class="btn grow" href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">🟢 WhatsApp</a>
         <a class="btn grow" href="sms:${esc(phone)}">💬 Text</a>
         <a class="btn grow" href="tel:${esc(phone)}">📞 Ring</a></div>` : ''}
 
-      ${$f.hasPlan ? `<div class="box"><h3>${$f.planPast ? '❓ Did this happen?' : '✅ Booked'}</h3>
+      ${$f.hasPlan ? `<div class="box"><h3>${$f.planPast ? '❓ Did this happen?' : '📅 Plan'}</h3>
         <div class="row"><div class="grow"><b>${esc(f.nextplan || 'Plan')}</b><div class="small muted">${$f.planDate ? fmtDate($f.planDate) + ' · ' + inDays($f.planDays) : 'No date yet'}</div></div>
           </div>
         <div class="row" style="margin-top:10px">
-          <button class="btn primary grow" style="padding:8px 10px" data-act="plan-yes" data-row="${f._row}">${$f.planPast ? 'It happened 🎉' : 'Done 🎉'}</button>
+          ${$f.planDays != null && $f.planDays > 0
+            ? `<button class="btn grow" style="padding:8px 10px" data-act="book" data-row="${f._row}">✏️ Edit</button>`
+            : `<button class="btn primary grow" style="padding:8px 10px" data-act="plan-yes" data-row="${f._row}">It happened 🎉</button>`}
           <button class="btn grow" style="padding:8px 10px" data-act="plan-they" data-row="${f._row}">They cancelled</button>
           <button class="btn grow" style="padding:8px 10px" data-act="plan-me" data-row="${f._row}">I cancelled</button></div></div>` : ''}
       ${$f.rel.pendingInvite ? `<div class="box"><h3>💌 Invited ${ago(daysSince($f.rel.pendingInvite.date))}: any reply?</h3><div class="row">
-          <button class="btn primary grow" style="padding:8px" data-act="inv-reply" data-v="yes" data-row="${f._row}">📅 Booked</button>
+          <button class="btn primary grow" style="padding:8px" data-act="inv-reply" data-v="yes" data-row="${f._row}">📅 Made a plan</button>
           <button class="btn grow" style="padding:8px" data-act="inv-reply" data-v="declined" data-row="${f._row}">🙂 Said no</button>
           <button class="btn grow" style="padding:8px" data-act="inv-reply" data-v="noreply" data-row="${f._row}">👻 No reply</button></div></div>` : ''}
 
       <div class="box"><h3>💗 Friendship health</h3>
         ${$f.tier ? `
-        <div class="kv"><span>💬 In touch <span class="muted">· goal ${every($f.contactGoal)}</span></span><b>${ago($f.dContact)}</b></div>
-        <div class="bar"><i style="width:${$f.contactScore}%;background:${healthColor($f.contactScore)}"></i></div>
-        <div class="kv" style="margin-top:10px"><span>🤝 Seen <span class="muted">· goal ${every($f.seeGoal)}</span></span><b>${ago($f.dSeen)}</b></div>
-        <div class="bar"><i style="width:${$f.seeScore}%;background:${healthColor($f.seeScore)}"></i></div>
-        ${$f.dCall != null ? `<div class="small muted">📞 Last call ${ago($f.dCall)} (counts as ${$f.callCredit === 0.75 ? '¾' : '½'} of a visit)</div>` : ''}
+        <div class="kv"><span>🔋 Friendship battery</span><b>${$f.health}%${$f.booked && $f.bat.total < PLAN_FLOOR ? ' <span class="muted small">(plan in the diary)</span>' : ''}</b></div>
+        <div class="bar" style="display:flex;gap:2px;background:var(--surface-2)">
+          <i style="width:${Math.round($f.bat.inPerson)}%;background:var(--good)" title="In person"></i>
+          <i style="width:${Math.round($f.bat.topUp)}%;background:var(--t5)" title="Calls, video & messages"></i></div>
+        <div class="small muted"><span style="color:var(--good)">■</span> in person ${Math.round($f.bat.inPerson)} · <span style="color:var(--t5)">■</span> calls, video & messages +${Math.round($f.bat.topUp)}</div>
+        <div class="kv" style="margin-top:10px"><span>🤝 Seen <span class="muted">· aim ${every($f.seeGoal)}</span></span><b>${ago($f.dSeen)}</b></div>
+        <div class="kv"><span>💬 In touch <span class="muted">· aim ${every($f.contactGoal)}</span></span><b>${ago($f.dContact)}</b></div>
+        ${$f.dCall != null ? `<div class="kv"><span>📞 Last call or video</span><b>${ago($f.dCall)}</b></div>` : ''}
         ` : `<div class="small muted">Pick a tier below to start tracking this friendship.</div>`}
         ${$f.km != null ? `<div class="small" style="margin-top:10px">📍 About ${$f.km < 1 ? '<1' : Math.round($f.km)} km from ${esc(currentBase().name)} → <b>${esc(proxRule(distanceBand($f.km, currentBase(), $f.loc)).geography || 'band ' + distanceBand($f.km, currentBase(), $f.loc))}</b>${$f.proxAuto ? '' : ' <span class="muted">(auto distance is off)</span>'}</div>` : ''}
         <div class="field" style="margin:14px 0 8px"><span>Tier</span><div class="tier-pick">
@@ -1334,7 +1573,7 @@
       </div>
 
       <div class="box"><h3>🕰️ Log something from earlier</h3>
-        <div class="row"><select class="input" id="pastType" style="width:auto"><option value="meet">🤝 Saw</option><option value="call">📞 Called</option><option value="message">💬 Messaged</option><option value="invite">💌 Invited</option><option value="reached">📥 They got in touch</option></select>
+        <div class="row"><select class="input" id="pastType" style="width:auto"><option value="meet">🤝 Saw</option><option value="call">📞 Called</option><option value="video">🎥 Video call</option><option value="message">💬 Messaged</option><option value="invite">💌 Invited</option><option value="reached">📥 They got in touch</option></select>
         <input class="input grow" type="date" id="pastDate" max="${iso(today())}" value="${iso(new Date(Date.now() - DAY))}">
         <button class="btn primary" data-act="log-past" data-row="${f._row}">Log</button></div>
       </div>
@@ -1354,12 +1593,51 @@
     if (!f) return '';
     const ideas = [...new Set([...splitTags(f.meeting), 'Coffee', 'Dinner', 'Drinks', 'Walk', 'Video call', 'Visit'])].slice(0, 8);
     const d = f.$.planDate;
-    return `<div class="sheet-head">${avatar(f)}<div class="grow"><h2>📅 Book something</h2><div class="sub">with ${esc(f.name)}</div></div></div>
+    const org = S.sheet.org || '';
+    return `<div class="sheet-head">${avatar(f)}<div class="grow"><h2>📅 A plan with ${esc(f.name.split(' ')[0])}</h2><div class="sub">Whoever arranged it</div></div></div>
       <label class="field"><span>What</span><input class="input" id="planWhat" value="${esc(f.nextplan || '')}" placeholder="Dinner at…"></label>
       <div class="scroll-x" style="margin:-4px 0 12px">${ideas.map(i => `<button class="chip" data-act="plan-idea" data-v="${esc(i)}">${esc(i)}</button>`).join('')}</div>
       <label class="field"><span>When</span><input class="input" type="date" id="planDate" value="${d && !d.noYear ? iso(d) : ''}" min="${iso(today())}"></label>
+      <div class="field"><span>Who organised it? (optional)</span><div class="row">
+        ${[['them', '🙌 They did'], ['me', '🙋 I did'], ['other', '👥 Someone else']].map(([k, l]) => `<button class="chip grow ${org === k ? 'on' : ''}" style="justify-content:center" data-act="plan-org" data-v="${k}">${l}</button>`).join('')}</div>
+        <div class="small muted" style="margin:6px 4px 0">If they invited you, it counts towards their reliability.</div></div>
       <button class="btn primary block" data-act="plan-save" data-row="${f._row}">Save plan ✅</button>
       ${f.$.hasPlan ? `<button class="btn block" style="margin-top:8px" data-act="plan-no" data-row="${f._row}">Remove plan</button>` : ''}`;
+  }
+
+  function sheetQuick() {
+    const q = S.quick || (S.quick = { text: '', parsed: [], day: iso(today()), filter: '' });
+    const recent = {};
+    S.log.forEach(e => { if (CHANNEL[e.type] && e.date >= iso(addDays(today(), -90))) recent[e.name.toLowerCase()] = (recent[e.name.toLowerCase()] || 0) + 1; });
+    const list = S.friends
+      .filter(f => !q.filter || f.$.hay.includes(q.filter.toLowerCase()))
+      .sort((a, b) => (b.$.planPast - a.$.planPast) || ((recent[b.name.toLowerCase()] || 0) - (recent[a.name.toLowerCase()] || 0)) || ((a.$.tier || 9) - (b.$.tier || 9)))
+      .slice(0, 30);
+    const days = [0, 1, 2, 3, 4, 5, 6].map(n => iso(addDays(today(), -n)));
+    return `<div class="sheet-head"><div style="font-size:40px">⚡</div><div class="grow"><h2>Log catch-ups</h2><div class="sub">Type it like a text, or tap below</div></div></div>
+      <textarea class="input" id="quickText" rows="3" placeholder="e.g. dinner with Sam and Jo on Saturday, called Mum yesterday, video with Chen">${esc(q.text)}</textarea>
+      <div id="quickPreview">${quickPreview()}</div>
+      <div class="section-title" style="margin-top:18px">Or tap people</div>
+      <div class="scroll-x" style="margin-bottom:8px">${days.map(d => `<button class="chip ${q.day === d ? 'on' : ''}" data-act="quick-day" data-v="${d}">${dayLabel(d)}</button>`).join('')}</div>
+      <input class="input" id="quickFilter" placeholder="Find someone…" value="${esc(q.filter)}" style="margin-bottom:10px" autocomplete="off">
+      <div id="quickList">${list.map(f => `<div class="list-row" style="cursor:default">${avatar(f, 'sm')}
+        <div class="grow" style="min-width:0"><div class="name" style="font-size:15px">${esc(f.name)}</div><div class="sub">${f.$.planPast ? '📅 ' + esc(f.nextplan || 'plan') : tierBadge(f)}</div></div>
+        <div class="row" style="gap:4px">${['message', 'call', 'video', 'meet'].map(t => `<button class="act" style="padding:7px 6px" data-act="quick-tap" data-type="${t}" data-row="${f._row}" aria-label="${t}"><span class="e">${TYPE_EMOJI[t]}</span></button>`).join('')}</div></div>`).join('')}</div>
+      <button class="btn block" style="margin-top:6px" data-act="add">🌱 Add someone new</button>`;
+  }
+  function quickPreview() {
+    const q = S.quick;
+    if (!q || !q.parsed.length) return q && q.text.trim() ? '<p class="small muted" style="margin:8px 4px">No friends’ names spotted yet.</p>' : '';
+    return `<div class="tag-edit" style="margin:10px 0">${q.parsed.map((e, i) => {
+      const f = e.cands[e.pick];
+      return `<span class="chip" style="padding-right:6px">
+        <button data-act="ql-type" data-i="${i}" title="Change type">${TYPE_EMOJI[e.type]}</button>
+        <button data-act="ql-who" data-i="${i}" title="${e.cands.length > 1 ? 'Tap for the other ' + esc(f.name.split(' ')[0]) : ''}">${esc(f.name)}${e.cands.length > 1 ? ' ⇄' : ''}</button>
+        <button class="muted small" data-act="ql-date" data-i="${i}" title="Change day">${dayLabel(e.date)}</button>
+        <button class="x" data-act="ql-remove" data-i="${i}" aria-label="Remove">✕</button></span>`;
+    }).join('')}</div>
+    <button class="btn primary block" data-act="ql-save">Log ${plural(q.parsed.length, 'catch-up')}</button>
+    <p class="small muted" style="margin:6px 4px 0">Tap the emoji to change the type, or the day to change the date. ⇄ means there’s more than one friend with that name.</p>`;
   }
 
   function sheetAdd() {
@@ -1475,15 +1753,24 @@
         <div class="small muted">Christmas list on 25 November. On Mondays: upcoming birthdays and who to invite near your home base.</div></div>
         <button class="switch ${S.data.remindersOn ? 'on' : ''}" data-act="reminders"></button></div>
         <div class="row" style="margin-top:12px"><button class="btn grow" data-act="email-xmas">🎄 Send list now</button><button class="btn grow" data-act="email-bdays">🫶 Send weekly nudge now</button></div></div>
+      <div class="box">
+        <div class="row"><div class="grow"><b>📆 Use my Google Calendar</b><div class="small muted">Spots events with friends (by name, or by the Email column) and suggests catch-ups and plans. Nothing is logged until you confirm.</div></div>
+          <button class="switch ${S.prefs.useCalendar ? 'on' : ''}" data-act="cal-toggle"></button></div>
+        <div class="row" style="margin-top:12px"><div class="grow"><b>🤖 Assume plans happened</b><div class="small muted">${AUTO_CONFIRM_DAYS} days after a plan’s date it’s logged as a catch-up. Today shows them so you can say it didn’t happen.</div></div>
+          <button class="switch ${S.prefs.autoConfirm !== false ? 'on' : ''}" data-act="auto-toggle"></button></div></div>
       <button class="btn block" style="margin-bottom:12px" data-act="progress">🏆 Progress, badges & reliability</button>
       <button class="btn block" style="margin-bottom:12px" data-act="bases">🏠 Home bases & distances</button>
       <a class="btn block" style="margin-bottom:12px" href="${esc(S.data.sheetUrl)}" target="_blank" rel="noopener">📄 Open my spreadsheet</a>
       <div class="box help"><h3>💗 How health works</h3>
-        <p><b>Health = ${WEIGHTS.contact * 100}% “in touch” + ${WEIGHTS.seen * 100}% “seen”</b>, the same split as your sheet’s formula. Each part is 100 right after you log something, 70 when you hit the goal and 0 at twice the goal, so overdue friends still rank against each other instead of all sitting at 0.</p>
-        <p><b>In touch:</b> any message, call or meet-up counts. Goal comes from the tier.</p>
-        <p><b>Seen:</b> goal = the distance band’s invite goal × the tier’s multiplier. Closer friends and closer friendships mean more frequent meet-ups. With a home base set, the distance band is worked out from where you’re living now.</p>
-        <p><b>Invites:</b> after you mark someone 💌 invited, they’re left off the “to book” lists for ${INVITE_SNOOZE} days.</p>
-        <p><b>Calls & video:</b> count as half a visit (¾ for friends abroad or 5+ hours away). A booked plan keeps “seen” at ${BOOKED_FLOOR}+.</p>
+        <p><b>🔋 Health is a friendship battery.</b> Every catch-up tops it up and it slowly drains, so seeing someone often counts for more than seeing them once.</p>
+        <table><tr><th>Catch-up</th><th>Adds</th><th>On its own, fills up to</th></tr>
+          <tr><td>🤝 In person</td><td>${BATTERY.points.meet}</td><td>100%</td></tr>
+          <tr><td>🎥 Video</td><td>${BATTERY.points.video}</td><td>${BATTERY.caps.video}% (${BATTERY.capsFar.video}% if far away)</td></tr>
+          <tr><td>📞 Call</td><td>${BATTERY.points.call}</td><td>${BATTERY.caps.call}% (${BATTERY.capsFar.call}% if far away)</td></tr>
+          <tr><td>💬 Message, 📥 they got in touch</td><td>${BATTERY.points.message}</td><td>${BATTERY.caps.message}%</td></tr></table>
+        <p style="margin-top:8px"><b>Together:</b> calls, video and messages top up whatever in-person time hasn’t filled. A call doesn’t replace seeing someone, but it keeps things warm.</p>
+        <p><b>Draining:</b> in-person points halve over the “see” aim (distance band’s invite goal × tier multiplier), messages over the tier’s contact goal, calls and video in between.</p>
+        <p><b>Plans:</b> a plan in the diary keeps the battery at ${PLAN_FLOOR}%+, whoever organised it. After you mark someone 💌 invited, they’re left off the “to see” list for ${INVITE_SNOOZE} days.</p>
         <table><tr><th>Tier</th><th>Contact</th><th>See multiplier</th></tr>${rows}</table>
         <table style="margin-top:10px"><tr><th>Distance</th><th>Invite goal</th></tr>${prox}</table>
         <p class="small muted" style="margin-top:8px">Change these numbers in your Rules sheet. Add a “See Multiplier” column there to tune the multipliers.</p></div>
@@ -1671,6 +1958,44 @@
     const v = a.dataset.v;
     switch (a.dataset.act) {
       case 'refresh': refresh(); break;
+      case 'quick': openSheet('quick'); setTimeout(() => { const t = $('#quickText'); t && t.focus(); }, 300); break;
+      case 'quick-day': S.quick.day = v; renderSheetKeepingInputs(); break;
+      case 'quick-tap': {
+        const day = S.quick ? S.quick.day : iso(today());
+        a.innerHTML = '<span class="e">✓</span>'; a.disabled = true;
+        logMany([{ f, type: a.dataset.type, date: day }], `${TYPE_EMOJI[a.dataset.type]} ${f.name.split(' ')[0]} ·`);
+        break;
+      }
+      case 'ql-type': { const e = S.quick.parsed[+a.dataset.i]; e.type = TYPE_ORDER[(TYPE_ORDER.indexOf(e.type) + 1) % TYPE_ORDER.length]; $('#quickPreview').innerHTML = quickPreview(); break; }
+      case 'ql-who': { const e = S.quick.parsed[+a.dataset.i]; e.pick = (e.pick + 1) % e.cands.length; $('#quickPreview').innerHTML = quickPreview(); break; }
+      case 'ql-date': { const e = S.quick.parsed[+a.dataset.i]; const n = daysBetween(parseDate(e.date), today()); e.date = iso(addDays(today(), -((n + 1) % 7))); $('#quickPreview').innerHTML = quickPreview(); break; }
+      case 'ql-remove': S.quick.parsed.splice(+a.dataset.i, 1); $('#quickPreview').innerHTML = quickPreview(); break;
+      case 'ql-save': {
+        const entries = S.quick.parsed.map(e => ({ f: e.cands[e.pick], type: e.type, date: e.date }));
+        S.quick = null; closeSheet();
+        logMany(entries);
+        break;
+      }
+      case 'plan-org': S.sheet.org = S.sheet.org === v ? '' : v; renderSheetKeepingInputs(); break;
+      case 'cal-on': savePrefs({ useCalendar: true }, '📆 Calendar on. Looking for catch-ups…').then(() => checkCalendar(true)); break;
+      case 'cal-hide': savePrefs({ calPromptHidden: true }); break;
+      case 'cal-toggle': savePrefs({ useCalendar: !S.prefs.useCalendar }).then(() => S.prefs.useCalendar ? checkCalendar(true) : (S.cal = [], render())); break;
+      case 'auto-toggle': savePrefs({ autoConfirm: S.prefs.autoConfirm === false }); break;
+      case 'cal-one': applyCalendar(S.cal.filter(c => c.key === v)); break;
+      case 'cal-all': applyCalendar(S.cal.slice(0, 8)); break;
+      case 'cal-skip': {
+        const c = S.cal.find(x => x.key === v);
+        S.cal = S.cal.filter(x => x.key !== v);
+        if (c) savePrefs({ calDismissed: [...(S.prefs.calDismissed || []), c.id].slice(-300) });
+        render();
+        break;
+      }
+      case 'auto-ok': ackAuto(v); render(); break;
+      case 'auto-they': case 'auto-me': {
+        const ev = S.log.find(e => e.id === v);
+        if (f && ev) didntHappen(f, ev, a.dataset.act === 'auto-they' ? 'them' : 'me');
+        break;
+      }
       case 'bases': openSheet('bases'); break;
       case 'base-pick': savePrefs({ current: v }, v ? `🏠 Living in ${v}. Distances updated` : 'Using the distances in your sheet'); break;
       case 'base-remove': savePrefs({ bases: S.prefs.bases.filter(b => b.name !== v), current: S.prefs.current === v ? '' : S.prefs.current }); break;
@@ -1692,18 +2017,21 @@
       case 'plan-idea': $('#planWhat').value = v; break;
       case 'plan-save': {
         const what = $('#planWhat').value.trim() || 'Plans', when = $('#planDate').value;
-        closeSheet(); vibrate();
-        const evs = [{ name: f.name, type: 'booked' }];
+        const sheetState = S.sheet;
+        closeSheet(); S.sheet = null; vibrate();
+        const org = sheetState && sheetState.org;
+        const evs = [{ name: f.name, type: 'booked', note: org ? 'org:' + org : '' }];
+        if (org === 'them') evs.push({ name: f.name, type: 'invited_me' });
         if (f.$.rel.pendingInvite) evs.push({ name: f.name, type: 'invite_yes' });
         save(f, { nextplan: what, nextplandate: when }).then(() => {
           addEvents(evs);
-          toast(`✅ Booked: ${what}${when ? ' · ' + fmtDate(parseDate(when)) : ''} · +${XP.booked} XP`);
+          toast(`📅 Plan: ${what}${when ? ' · ' + fmtDate(parseDate(when)) : ''} · +${XP.booked} XP`);
         }).catch(() => {});
         break;
       }
       case 'plan-yes': {
         const when = f.$.planDate && f.$.planDays <= 0 ? iso(f.$.planDate) : iso(today());
-        logInteraction(f, /video|call|zoom|facetime/i.test(f.nextplan || '') ? 'call' : 'meet', when, [{ name: f.name, type: 'happened', date: when }]);
+        logInteraction(f, /video|call|zoom|facetime|teams/i.test(f.nextplan || '') ? 'video' : 'meet', when, [{ name: f.name, type: 'happened', date: when }]);
         if (f.$.hasPlan) save(f, { nextplan: '', nextplandate: '' }).catch(() => {});
         break;
       }
@@ -1788,6 +2116,17 @@
   });
 
   document.addEventListener('input', e => {
+    if (e.target.id === 'quickText') {
+      S.quick.text = e.target.value;
+      S.quick.parsed = parseQuickLog(e.target.value);
+      $('#quickPreview').innerHTML = quickPreview();
+    } else if (e.target.id === 'quickFilter') {
+      S.quick.filter = e.target.value;
+      const panel = $('#sheetPanel'), top = panel.scrollTop;
+      renderSheetKeepingInputs();
+      panel.scrollTop = top;
+      const el = $('#quickFilter'); el.focus(); el.setSelectionRange(el.value.length, el.value.length);
+    }
     if (e.target.id === 'searchInput') {
       S.query = e.target.value;
       $('#friendList').innerHTML = (() => { const l = filteredFriends(); return l.length ? l.map(card).join('') : emptyState('🔍', 'No matches', 'Try a different word, or tap 🏷️ to see every tag.'); })();

@@ -16,32 +16,45 @@ launcher/                ← optional: gives you a proper home-screen icon
 4. Replace everything in `Index.html` with `apps-script/Index.html`.
 5. **Deploy → Manage deployments → ✏️ (edit) → Version: New version → Deploy.** Your link stays the same.
    - Set **Execute as: Me** and **Who has access: Only myself**.
-6. Open the app. Google will ask for new permissions: sending email to you (Christmas and birthday lists), looking up places for the map, and scheduling the daily reminder. Approve them.
+6. Open the app. Google will ask for new permissions: sending email to you (Christmas and birthday lists), looking up places for the map, reading your calendar (only used if you switch it on), and scheduling the daily reminder. Approve them.
 7. In the app, go to **Dates → Christmas** and switch on **Email me this list on 25 November**.
 
 ### What changes in your sheet
 
 - **Nothing is deleted or renamed.** Formula columns (Friend Health Score, Contact Task and so on) are left alone and shown as 🔒 in the app.
 - The first time you use them, the app adds these columns to the end of **Main**: `Last Called`, `Last Invited`, `Next Plan`, `Next Plan Date`, `Phone`, `Likes`, `Dislikes`, `Notes`.
-- Your home bases are saved in the script's settings, not the sheet.
+- An `Email` column is added if you fill one in. It's used to match calendar guests.
+- Your home bases and app settings are saved in the script's settings, not the sheet.
 - Two more hidden sheets: `_Log` (every catch-up, invite and plan outcome you log, which powers reliability, XP and streaks) and `_Weekly` (one friendship score per week).
 - The map adds a hidden sheet called `_Geo` that remembers where each place is, so it only looks each one up once.
 - You have **two "Address" columns**. The app treats the second as "Address (2nd column)". For Christmas labels it uses whichever one has a house number or postcode in it. If you rename one (for example to "Postal Address"), the app will cope.
 
-## How health is worked out
+## How health is worked out: the friendship battery
 
-**Health = 60% "in touch" + 40% "seen"**, the same split as your sheet's Friend Pulse formula. Each part scores 100 just after you log something, 70 when you reach the goal, and 0 at twice the goal. (Your formula hits 0 right at the goal, which puts every overdue friend at 0 so they can't be ranked against each other.) You can change the split in `WEIGHTS` near the top of the script in `Index.html`.
+Every catch-up tops up a friend's battery, and it slowly drains. Seeing someone often counts for more than seeing them once, and different kinds of contact count differently:
 
-| | Goal comes from | Counts |
+| Catch-up | Adds | On its own, can fill the battery to |
 |---|---|---|
-| 💬 In touch | Tier → *Contact Goal Days* | any message, call or meet-up |
-| 🤝 Seen | Proximity → *Invite Goal* × Tier → *See Multiplier* | meet-ups. A call or video counts as **half a visit** (¾ for proximity 1–2, i.e. abroad or 5+ hours away) |
+| 🤝 In person | 100 | 100% |
+| 🎥 Video | 60 | 75% (90% for friends abroad or 5+ hours away) |
+| 📞 Call | 45 | 60% (70% if far away) |
+| 💬 Message / 📥 they got in touch | 25 | 40% |
 
-- **Default see multipliers:** Tier 1 ×0.5, 2 ×0.75, 3 ×1, 4 ×1.5, 5 ×2, 6 ×3. Add a `See Multiplier` column to your Rules sheet to change them.
-  - Example: a Tier 1 friend living 30 minutes away gets 12 × 0.5 = about every 6 days. A Tier 4 friend abroad gets 365 × 1.5 = about every 18 months.
-- A **booked plan** keeps "seen" at 85 or above until the date passes. Then the app asks whether it happened.
-- **💬 Message** list: people past their contact goal. **📅 Book** list: people past their see goal with nothing booked. Both are sorted by how overdue they are, with closer tiers ranked higher.
-- Proximity 6 ("15/20 minutes walk") had no Invite Goal in your Settings sheet, so the app uses 10 days. Add a number there to change it.
+- **Draining:** in-person points halve over the friend's "see" aim (distance band's Invite Goal × tier's See Multiplier). Messages halve over the tier's Contact Goal Days, and calls and video somewhere in between.
+- **Together:** calls, video and messages top up whatever in-person time hasn't filled. A video call keeps a friendship warm but doesn't replace seeing someone. Example: a tier-1 friend not seen in person for 80 days sits at about 40%; a video call yesterday takes them to about 85%, which drains back below 70% within a couple of weeks unless you see them.
+- **Plans:** a plan in the diary keeps the battery at 70% or above, whoever organised it.
+- **To-do lists:** **💬 Message** is everyone past their contact goal. **🤝 To see** is everyone past their see goal whose battery is under 70% and who has no plan. Both lists are sorted by how much each person needs you, with closer tiers and more reliable friends first.
+- **History:** before you install this, the app only knows each friend's last dates from the sheet, so batteries are rough to start with and get more accurate as you log.
+- **Tuning:** the numbers are in `BATTERY` near the top of the script in `Index.html`. Proximity 6 has no Invite Goal in your Settings sheet, so the app uses 10 days; add a number there to change it.
+- **Your old split:** your 60/40 formula judged each friend on two "how long since" clocks, so it couldn't count frequency or give video partial credit, and everyone overdue sat at 0. The battery fixes all three.
+
+## Logging, the easy way
+
+- **⚡ Log catch-ups** (the button on Today, and the floating button) lets you type it like a text, for example *"dinner with Sam and Jo on Saturday, called Mum yesterday, video with Chen, Alex texted me"*. It picks out the people, what you did and when. Tap a chip to fix the type, the day, or which Sam you meant, then log them all at once. Below that, tap 💬 📞 🎥 🤝 next to anyone for a one-tap log on any of the last 7 days.
+- **📆 Google Calendar** (switch it on from Today or Settings): events from the last 2 weeks that mention a friend's name (or have their address from the `Email` column as a guest) become suggested catch-ups. Online meetings become 🎥 video. Upcoming events become plans. You confirm each one, or tap ✕ and it won't be suggested again.
+- **🤖 Plans log themselves:** 2 days after a plan's date, it's logged as a catch-up. Today shows a list of these so you can tap *They ✗* or *Me ✗* if it didn't happen, which puts the old dates back.
+- **Plans aren't "bookings":** 📅 Plan is for anything in the diary, whoever arranged it. You can say who organised it; if *they* did, it counts in their favour for reliability. 💌 *I invited them* is separate, for when you did the inviting.
+- **Older catch-ups:** logging one from the past goes into the history and counts towards the battery, without moving the sheet's "last" dates backwards.
 
 ## Home bases (for when you're living in more than one place)
 
@@ -51,7 +64,7 @@ Tap **🏠 Living in…** on Today or Places, add each place you live (a name pl
 |---|---|
 | 6 · walking distance | under 1.5 km |
 | 5 · 30 min public transport | 1.5–8 km |
-| 4 · same city | 8–30 km (a place tag on its own never counts as closer than this, because it's only city-precise) |
+| 4 · same city (rename "London-based" to "Same city" in your Settings sheet so it reads right wherever you live) | 8–30 km (a place tag on its own never counts as closer than this, because it's only city-precise) |
 | 3 · within the UK | 30–400 km |
 | 2 · 5+ hours away | over 400 km |
 | 1 · another country | different country, or over 700 km |

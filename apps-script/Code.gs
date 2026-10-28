@@ -21,6 +21,7 @@ const EXTRA_COLUMNS = {
   nextplandate: 'Next Plan Date',
   lastinvited: 'Last Invited',
   phone: 'Phone',
+  email: 'Email',
   likes: 'Likes',
   dislikes: 'Dislikes',
   notes: 'Notes'
@@ -34,7 +35,7 @@ const SCORING = {
   inviteSnoozeDays: 14, // someone you invited recently isn't suggested again for this long
   nearKm: 30            // "near" a home base
 };
-const DEFAULT_PREFS = { bases: [], current: '', autoDistance: true };
+const DEFAULT_PREFS = { bases: [], current: '', autoDistance: true, useCalendar: false, autoConfirm: true, calDismissed: [] };
 
 // Used only when the spreadsheet is brand new (e.g. a friend setting up their own copy).
 const STARTER_HEADERS = [
@@ -427,6 +428,32 @@ function geocode(queriesJson) {
     sheet.getRange(sheet.getLastRow() + 1, 1, fresh.length, 4).setValues(fresh);
   }
   return JSON.stringify(out);
+}
+
+/* ───────────────────────── Calendar ───────────────────────── */
+
+// Your calendar events around now, so the app can spot catch-ups with friends. Read-only; nothing is stored.
+function scanCalendar(daysBack, daysAhead) {
+  const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  const now = new Date();
+  const start = new Date(now.getTime() - daysBack * 86400000), end = new Date(now.getTime() + daysAhead * 86400000);
+  const out = [];
+  CalendarApp.getAllCalendars().forEach(cal => {
+    if (cal.isHidden() || /#(contacts|holiday)@/.test(cal.getId())) return; // skip birthday and bank-holiday calendars
+    cal.getEvents(start, end).slice(0, 300).forEach(e => {
+      try { if (e.getMyStatus() === CalendarApp.GuestStatus.NO) return; } catch (x) { /* not a guest */ }
+      const text = [e.getTitle(), e.getLocation(), e.getDescription()].join(' ');
+      out.push({
+        id: (e.getId() + '~' + Utilities.formatDate(e.getStartTime(), tz, 'yyyyMMdd')).replace(/[^\w@.~-]/g, ''),
+        title: e.getTitle(),
+        date: Utilities.formatDate(e.getStartTime(), tz, 'yyyy-MM-dd'),
+        ended: e.getEndTime() < now,
+        video: /zoom\.us|meet\.google|teams\.microsoft|facetime|whereby|video call/i.test(text),
+        guests: e.getGuestList().map(g => g.getEmail().toLowerCase())
+      });
+    });
+  });
+  return JSON.stringify(out.slice(0, 600));
 }
 
 /* ───────────────────────── History ───────────────────────── */
