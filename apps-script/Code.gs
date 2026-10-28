@@ -95,7 +95,7 @@ function getData() {
       prefs: getPrefs_(),
       log: log,
       weeks: weeks,
-      email: Session.getEffectiveUser().getEmail(),
+      email: userEmail_(),
       extraColumns: EXTRA_COLUMNS,
       version: APP_VERSION
     };
@@ -131,6 +131,10 @@ function checkSetup() {
   say('Reminder emails: ' + (d.remindersOn ? 'on' : 'off'));
   say('If the web app still shows something different, deploy a new version: Deploy → Manage deployments → ✏️ → Version: New version.');
   return lines;
+}
+
+function userEmail_() {
+  try { return Session.getEffectiveUser().getEmail(); } catch (e) { return ''; }
 }
 
 function getPrefs_() {
@@ -793,9 +797,13 @@ function dailyJobs() {
 function remindersOn_() {
   const stored = PropertiesService.getScriptProperties().getProperty('remindersOn');
   if (stored !== null) return stored === 'true';
-  const on = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailyJobs');
-  PropertiesService.getScriptProperties().setProperty('remindersOn', String(on));
-  return on;
+  try {
+    const on = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'dailyJobs');
+    PropertiesService.getScriptProperties().setProperty('remindersOn', String(on));
+    return on;
+  } catch (e) {
+    return false; // permission not granted yet: the app still loads, reminders just show as off
+  }
 }
 
 function setReminders(on) {
