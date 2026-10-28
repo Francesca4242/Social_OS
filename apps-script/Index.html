@@ -286,6 +286,28 @@
 
   <div id="sheet" class="sheet" hidden><div class="sheet-bg" data-act="close"></div><div class="sheet-panel" id="sheetPanel"></div></div>
   <div id="toast"></div>
+  <script>
+    // Safety net: runs before the app, so a failure shows a reason instead of an endless spinner.
+    // Written in old-style JavaScript on purpose, so it works even if the main code doesn't.
+    window.__started = false;
+    window.__loaded = false;
+    function bootError(msg) {
+      var v = document.getElementById('view');
+      if (!v || window.__loaded) return;
+      v.innerHTML = '<div style="padding:40px 8px;text-align:center"><div style="font-size:48px">😕</div>' +
+        '<h3>Social OS didn’t start</h3><div class="box" style="text-align:left;margin:14px 0;word-break:break-word"></div>' +
+        '<button class="btn primary" onclick="location.reload()">Reload</button>' +
+        '<p class="small muted" style="text-align:left;margin-top:16px">Make sure Index.html was pasted in full (it ends with &lt;/html&gt;) and saved, then deploy a new version. ' +
+        'You can also open your app link with <b>?check=1</b> on the end to check that it can read your sheet.</p></div>';
+      v.querySelector('.box').textContent = msg;
+    }
+    window.addEventListener('error', function (e) {
+      if (!window.__loaded) bootError('Error: ' + (e.message || 'unknown') + (e.lineno ? ' (line ' + e.lineno + ')' : ''));
+    });
+    setTimeout(function () {
+      if (!window.__started) bootError('The app’s code never started. This usually means Index.html is incomplete or an old copy is deployed.');
+    }, 8000);
+  </script>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script>
@@ -886,6 +908,7 @@
       if (d.error) throw new Error(d.error);
       const open = S.sheet && S.sheet.row && S.byRow[S.sheet.row] && S.byRow[S.sheet.row].name;
       ingest(d);
+      window.__loaded = true;
       try { localStorage.setItem(CACHE_KEY, json); } catch (e) {}
       if (open) { const f = S.friends.find(x => x.name === open); if (f) S.sheet.row = f._row; }
       render();
@@ -2227,15 +2250,16 @@
 
   /* ───────────── Start ───────────── */
   (function init() {
+    window.__started = true;
     try {
       const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) { const d = JSON.parse(cached); if (!d.error) ingest(d); }
+      if (cached) { const d = JSON.parse(cached); if (!d.error) { ingest(d); window.__loaded = true; } }
     } catch (e) {}
     render();
     refresh();
     // Keep you posted if Google is slow, rather than leaving a silent spinner.
     setTimeout(() => { if (!S.data && $('#loadHint')) $('#loadHint').textContent = 'Still loading… The first load after an update can take 20–30 seconds while Google starts the app.'; }, 8000);
-    setTimeout(() => { if (!S.data && $('#loadHint')) showLoadError('No reply from Google after a minute.'); }, 60000);
+    setTimeout(() => { if (!S.data && $('#loadHint')) showLoadError('No reply from Google after a minute. On a phone this is usually because more than one Google account is signed in to Chrome. Try an incognito tab signed in only to the account that owns the spreadsheet.'); }, 60000);
   })();
   </script>
 </body>

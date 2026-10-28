@@ -54,7 +54,14 @@ const STARTER_RULES = [
   [6, 365, '', 3, 6, 10, '15/20 minutes walk']
 ];
 
-function doGet() {
+function doGet(e) {
+  // Add ?check=1 to the app link for a plain status page built entirely by Google (no app code needed).
+  if (e && e.parameter && e.parameter.check) {
+    const lines = checkSetup();
+    return HtmlService.createHtmlOutput('<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<div style="font:15px/1.5 system-ui,sans-serif;padding:16px;max-width:640px"><h2>Social OS check</h2>' +
+      lines.map(l => '<p style="margin:0 0 10px">' + htmlEsc_(l) + '</p>').join('') + '</div>').setTitle('Social OS check');
+  }
   const out = HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Social OS')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
@@ -105,22 +112,25 @@ function getData() {
  * pick "checkSetup" in the function menu at the top, press ▶ Run, then read the Execution log.
  */
 function checkSetup() {
+  const lines = [];
+  const say = l => { lines.push(l); console.log(l); };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  console.log('Social OS version ' + APP_VERSION + ' · spreadsheet "' + ss.getName() + '"');
-  console.log('Sheets: ' + ss.getSheets().map(s => s.getName()).join(', '));
+  say('Social OS version ' + APP_VERSION + ' · spreadsheet "' + ss.getName() + '"');
+  say('Sheets: ' + ss.getSheets().map(s => s.getName()).join(', '));
   const main = ss.getSheetByName(MAIN_SHEET);
-  console.log(main ? '✓ Found the "Main" sheet' : '✗ No sheet called "Main", so the first sheet is used: ' + ss.getSheets()[0].getName());
+  say(main ? '✓ Found the "Main" sheet' : '✗ No sheet called "Main", so the first sheet is used: ' + ss.getSheets()[0].getName());
   const rules = rulesSheet_(ss);
-  console.log(rules ? '✓ Goals read from the "' + rules.getName() + '" sheet' : '✗ No sheet with a "Contact Goal Days" header, so default goals are used');
+  say(rules ? '✓ Goals read from the "' + rules.getName() + '" sheet' : '✗ No sheet with a "Contact Goal Days" header, so default goals are used');
   const json = getData();
   const d = JSON.parse(json);
-  if (d.error) { console.log('✗ Loading failed: ' + d.error); return; }
-  console.log('✓ Read ' + d.friends.length + ' friends and ' + d.columns.length + ' columns');
-  console.log('Formula columns (read-only in the app): ' + (d.columns.filter(c => c.computed).map(c => c.label).join(', ') || 'none'));
-  console.log('Time taken (ms, cumulative): ' + JSON.stringify(d.timings) + ' · data size ' + Math.round(json.length / 1024) + ' KB');
-  console.log('Tiers set up: ' + Object.keys(d.rules.tiers).join(', ') + ' · distance bands: ' + Object.keys(d.rules.proximity).join(', '));
-  console.log('Reminder emails: ' + (d.remindersOn ? 'on' : 'off'));
-  console.log('If the web app still shows something different, deploy a new version: Deploy → Manage deployments → ✏️ → Version: New version.');
+  if (d.error) { say('✗ Loading failed: ' + d.error); return lines; }
+  say('✓ Read ' + d.friends.length + ' friends and ' + d.columns.length + ' columns');
+  say('Formula columns (read-only in the app): ' + (d.columns.filter(c => c.computed).map(c => c.label).join(', ') || 'none'));
+  say('Time taken (ms, cumulative): ' + JSON.stringify(d.timings) + ' · data size ' + Math.round(json.length / 1024) + ' KB');
+  say('Tiers set up: ' + Object.keys(d.rules.tiers).join(', ') + ' · distance bands: ' + Object.keys(d.rules.proximity).join(', '));
+  say('Reminder emails: ' + (d.remindersOn ? 'on' : 'off'));
+  say('If the web app still shows something different, deploy a new version: Deploy → Manage deployments → ✏️ → Version: New version.');
+  return lines;
 }
 
 function getPrefs_() {
