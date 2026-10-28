@@ -289,20 +289,36 @@
   <script>
     // Safety net: runs before the app, so a failure shows a reason instead of an endless spinner.
     // Written in old-style JavaScript on purpose, so it works even if the main code doesn't.
+    var EXPECTED_LINES = 2009; // how many lines the app's main code has
     window.__started = false;
     window.__loaded = false;
     function bootError(msg) {
       var v = document.getElementById('view');
-      if (!v || window.__loaded) return;
+      if (!v || window.__loaded || window.__bootShown) return;
+      window.__bootShown = true; // keep the first (most useful) message
       v.innerHTML = '<div style="padding:40px 8px;text-align:center"><div style="font-size:48px">😕</div>' +
-        '<h3>Social OS didn’t start</h3><div class="box" style="text-align:left;margin:14px 0;word-break:break-word"></div>' +
+        '<h3>Social OS didn’t start</h3><div class="box" style="text-align:left;margin:14px 0;word-break:break-word;white-space:pre-wrap;font-size:13px"></div>' +
         '<button class="btn primary" onclick="location.reload()">Reload</button>' +
         '<p class="small muted" style="text-align:left;margin-top:16px">Make sure Index.html was pasted in full (it ends with &lt;/html&gt;) and saved, then deploy a new version. ' +
         'You can also open your app link with <b>?check=1</b> on the end to check that it can read your sheet.</p></div>';
-      v.querySelector('.box').textContent = msg;
+      v.querySelector('.box').textContent = msg + '\n\n' + pasteCheck();
+    }
+    // Compares the app's code with what was published, to spot a cut-off or mixed-up paste.
+    function pasteCheck() {
+      var scripts = document.getElementsByTagName('script'), main = scripts[scripts.length - 1];
+      var got = main && !main.src ? main.text.split('\n').length : 0;
+      return got === EXPECTED_LINES ? 'App code: the right length (' + got + ' lines), so a character was probably changed while copying. Copy Index.html again on a computer, ideally from the GitHub “Raw” view.'
+        : 'App code: ' + got + ' lines, but it should be ' + EXPECTED_LINES + '. Index.html didn’t paste correctly: copy it again on a computer.';
     }
     window.addEventListener('error', function (e) {
-      if (!window.__loaded) bootError('Error: ' + (e.message || 'unknown') + (e.lineno ? ' (line ' + e.lineno + ')' : ''));
+      if (window.__loaded) return;
+      var where = '';
+      try {
+        // Show the line that broke, so it can be found and fixed.
+        var lines = document.documentElement.outerHTML.split('\n'), n = e.lineno || 0;
+        if (n) where = '\n\nNear line ' + n + ':\n' + lines.slice(Math.max(0, n - 2), n + 1).join('\n').slice(0, 500);
+      } catch (x) {}
+      bootError('Error: ' + (e.message || 'unknown') + (e.lineno ? ' (line ' + e.lineno + ')' : '') + where);
     });
     setTimeout(function () {
       if (!window.__started) bootError('The app’s code never started. This usually means Index.html is incomplete or an old copy is deployed.');
