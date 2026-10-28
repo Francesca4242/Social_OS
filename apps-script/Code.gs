@@ -16,16 +16,29 @@ const EXTRA_COLUMNS = {
   lastcalled: 'Last Called',
   nextplan: 'Next Plan',
   nextplandate: 'Next Plan Date',
+  lastinvited: 'Last Invited',
   phone: 'Phone',
+  likes: 'Likes',
+  dislikes: 'Dislikes',
   notes: 'Notes'
 };
+
+// Mirrors the app's scoring (Index.html) for the weekly email. Keep the two in step.
+const SCORING = {
+  contactGoal: { 1: 4, 2: 12, 3: 30, 4: 90, 5: 150, 6: 365 },
+  seeMultiplier: { 1: 0.5, 2: 0.75, 3: 1, 4: 1.5, 5: 2, 6: 3 },
+  inviteGoal: { 1: 365, 2: 150, 3: 120, 4: 60, 5: 12, 6: 10 },
+  inviteSnoozeDays: 14, // someone you invited recently isn't suggested again for this long
+  nearKm: 30            // "near" a home base
+};
+const DEFAULT_PREFS = { bases: [], current: '', autoDistance: true };
 
 // Used only when the spreadsheet is brand new (e.g. a friend setting up their own copy).
 const STARTER_HEADERS = [
   'Name', 'Photo', 'Tier', 'Proximity Score', 'Meeting', 'Tags', 'Place Tags', 'Address', 'Phone',
-  'Last Contacted', 'Last Seen/ Video Called', 'Last Called', 'Next Plan', 'Next Plan Date',
+  'Last Contacted', 'Last Seen/ Video Called', 'Last Called', 'Last Invited', 'Next Plan', 'Next Plan Date',
   'Birthday Date', 'Gift Effort', 'Christmas Card', 'Christmas Gift Effort',
-  'Allergy/ Dietary Requirements', 'Gifts Last Brought', 'Future Gift Ideas', 'Notes'
+  'Allergy/ Dietary Requirements', 'Likes', 'Dislikes', 'Gifts Last Brought', 'Future Gift Ideas', 'Notes'
 ];
 const STARTER_RULES = [
   ['Tier', 'Contact Goal Days', 'Label', 'See Multiplier', 'Proximity', 'Invite Goal', 'Geography'],
@@ -34,7 +47,7 @@ const STARTER_RULES = [
   [3, 30, '', 1, 3, 120, 'Within the UK'],
   [4, 90, '', 1.5, 4, 60, 'Same city'],
   [5, 150, '', 2, 5, 12, '30 minutes public transport'],
-  [6, 365, '', 3, 6, 7, '15/20 minutes walk']
+  [6, 365, '', 3, 6, 10, '15/20 minutes walk']
 ];
 
 function doGet() {
@@ -61,12 +74,28 @@ function getData() {
       geo: readGeo_(ss),
       sheetUrl: ss.getUrl() + '#gid=' + sheet.getSheetId(),
       remindersOn: remindersOn_(),
+      prefs: getPrefs_(),
       email: Session.getEffectiveUser().getEmail(),
       extraColumns: EXTRA_COLUMNS
     });
   } catch (e) {
     return JSON.stringify({ error: e.message || String(e) });
   }
+}
+
+function getPrefs_() {
+  try {
+    return Object.assign({}, DEFAULT_PREFS, JSON.parse(PropertiesService.getScriptProperties().getProperty('prefs') || '{}'));
+  } catch (e) {
+    return Object.assign({}, DEFAULT_PREFS);
+  }
+}
+
+// Home bases and the current one: {bases: [{name, lat, lng, country}], current: 'London', autoDistance: true}
+function setPrefs(json) {
+  const prefs = Object.assign(getPrefs_(), JSON.parse(json));
+  PropertiesService.getScriptProperties().setProperty('prefs', JSON.stringify(prefs));
+  return JSON.stringify(prefs);
 }
 
 function normalizeKey_(header) {
@@ -263,17 +292,39 @@ function updateFields(row, name, changesJson) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = mainSheet_(ss);
     const cols = headerInfo_(sheet);
-    const changes = JSON.parse(changesJson);
-    const r = resolveRow_(sheet, cols, row, name);
-    const skipped = [];
-    Object.keys(changes).forEach(key => {
-      const c = ensureColumn_(sheet, cols, key);
-      if (!c) { skipped.push(key); return; }
-      const cell = sheet.getRange(r, c.col);
-      if (isComputedFormula_(cell.getFormula())) { skipped.push(c.label); return; }
-      writeCell_(cell, key, changes[key]);
+    const done = applyChanges_(sheet, cols, row, name, JSON.parse(changesJson));
+    return JSON.stringify({ ok: true, row: done.row, skipped: done.skipped });
+  } catch (e) {
+    return JSON.stringify({ error: e.message || String(e) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function applyChanges_(sheet, cols, row, name, changes) {
+  const r = resolveRow_(sheet, cols, row, name);
+  const skipped = [];
+  Object.keys(changes).forEach(key => {
+    const c = ensureColumn_(sheet, cols, key);
+    if (!c) { skipped.push(key); return; }
+    const cell = sheet.getRange(r, c.col);
+    if (isComputedFormula_(cell.getFormula())) { skipped.push(c.label); return; }
+    writeCell_(cell, key, changes[key]);
+  });
+  return { row: r, skipped: skipped };
+}
+
+// Several friends at once, e.g. marking a whole invite list. updatesJson: [{row, name, changes}]
+function updateMany(updatesJson) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = mainSheet_(SpreadsheetApp.getActiveSpreadsheet());
+    const cols = headerInfo_(sheet);
+    const results = JSON.parse(updatesJson).map(u => {
+      try { return applyChanges_(sheet, cols, u.row, u.name, u.changes); } catch (e) { return { error: e.message }; }
     });
-    return JSON.stringify({ ok: true, row: r, skipped: skipped });
+    return JSON.stringify({ ok: true, results: results });
   } catch (e) {
     return JSON.stringify({ error: e.message || String(e) });
   } finally {
@@ -324,20 +375,20 @@ function geoSheet_(ss, create) {
   let sheet = ss.getSheetByName(GEO_SHEET);
   if (!sheet && create) {
     sheet = ss.insertSheet(GEO_SHEET);
-    sheet.getRange(1, 1, 1, 3).setValues([['Query', 'Lat', 'Lng']]);
+    sheet.getRange(1, 1, 1, 4).setValues([['Query', 'Lat', 'Lng', 'Country']]);
     sheet.hideSheet();
   }
   return sheet;
 }
 
-// { "london": {lat, lng}, "nowhere": null }
+// { "london": {lat, lng, country}, "nowhere": null }
 function readGeo_(ss) {
   const sheet = geoSheet_(ss, false);
   const geo = {};
   if (!sheet || sheet.getLastRow() < 2) return geo;
-  sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues().forEach(r => {
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues().forEach(r => {
     const key = String(r[0]).toLowerCase().trim();
-    if (key) geo[key] = r[1] === '' ? null : { lat: Number(r[1]), lng: Number(r[2]) };
+    if (key) geo[key] = r[1] === '' ? null : { lat: Number(r[1]), lng: Number(r[2]), country: String(r[3] || '') };
   });
   return geo;
 }
@@ -356,14 +407,19 @@ function geocode(queriesJson) {
     let hit = null;
     try {
       const res = geocoder.geocode(String(q));
-      if (res.status === 'OK' && res.results.length) hit = res.results[0].geometry.location;
+      if (res.status === 'OK' && res.results.length) {
+        const top = res.results[0];
+        const country = (top.address_components || []).find(c => c.types.indexOf('country') >= 0);
+        hit = { lat: top.geometry.location.lat, lng: top.geometry.location.lng, country: country ? country.short_name : '' };
+      }
     } catch (e) { /* quota or network: treat as not found for now */ }
-    out[key] = hit ? { lat: hit.lat, lng: hit.lng } : null;
-    fresh.push([key, hit ? hit.lat : '', hit ? hit.lng : '']);
+    out[key] = hit;
+    fresh.push([key, hit ? hit.lat : '', hit ? hit.lng : '', hit ? hit.country : '']);
   });
   if (fresh.length) {
     const sheet = geoSheet_(ss, true);
-    sheet.getRange(sheet.getLastRow() + 1, 1, fresh.length, 3).setValues(fresh);
+    if (!sheet.getRange(1, 4).getValue()) sheet.getRange(1, 4).setValue('Country');
+    sheet.getRange(sheet.getLastRow() + 1, 1, fresh.length, 4).setValues(fresh);
   }
   return JSON.stringify(out);
 }
@@ -377,7 +433,7 @@ function isYes_(v) {
 
 // When there are two address columns, prefer the one that looks postal (has a number in it).
 function postalAddress_(f) {
-  const options = Object.keys(f).filter(k => /address/.test(k)).map(k => String(f[k] || '').trim()).filter(Boolean);
+  const options = Object.keys(f).filter(k => /address/.test(k) && !/allergy/.test(k)).map(k => String(f[k] || '').trim()).filter(Boolean);
   return options.find(a => /\d/.test(a)) || options[0] || '';
 }
 
@@ -406,7 +462,6 @@ function emailChristmasList() {
     '<td ' + td + '>' + htmlEsc_(isYes_(f.christmasgifteffort) ? f.christmasgifteffort : '') + '</td>' +
     '<td ' + td + '>' + htmlEsc_(f.futuregiftideas) + '</td>' +
     '<td ' + td + '>' + htmlEsc_(f.giftslastbrought) + '</td>' +
-    '<td ' + td + '>' + htmlEsc_(f.allergydietaryrequirements) + '</td>' +
     '</tr>').join('');
   const th = 'style="text-align:left;padding:8px 10px;background:#fff1ec;font-size:12px"';
   const html = '<div style="font-family:Arial,sans-serif;color:#2b2118">' +
@@ -414,7 +469,7 @@ function emailChristmasList() {
     '<p style="margin:0 0 16px;color:#666">' + cards.length + ' cards · ' + gifts.length + ' gifts. ' +
     'The address CSV is attached for printing labels.</p>' +
     '<table style="border-collapse:collapse;width:100%"><tr>' +
-    ['Friend', 'Card', 'Address', 'Gift effort', 'Gift ideas', 'Gifts last bought', 'Allergies / diet']
+    ['Friend', 'Card', 'Address', 'Gift effort', 'Gift ideas', 'Gifts last bought']
       .map(h => '<th ' + th + '>' + h + '</th>').join('') +
     '</tr>' + body + '</table></div>';
   const csvCell = v => '"' + String(v || '').replace(/"/g, '""') + '"';
@@ -431,7 +486,7 @@ function emailChristmasList() {
 }
 
 // Accepts yyyy-mm-dd, dd/mm/yyyy, dd/mm, "14 March", "March 14".
-function birthdayParts_(raw) {
+function parseDateParts_(raw) {
   const s = String(raw || '').trim();
   const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
   let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
@@ -445,35 +500,110 @@ function birthdayParts_(raw) {
   return null;
 }
 
-function emailBirthdayDigest(skipIfEmpty) {
+function distanceKm_(a, b) {
+  const rad = x => x * Math.PI / 180;
+  const h = Math.pow(Math.sin(rad(b.lat - a.lat) / 2), 2) +
+    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.pow(Math.sin(rad(b.lng - a.lng) / 2), 2);
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+
+// Distance → the Rules sheet's proximity bands (1 = another country … 6 = walking distance).
+// A place tag like "London" is only city-precise, so it never counts as closer than "same city".
+function distanceBand_(km, base, loc) {
+  const abroad = (base.country && loc.country && base.country !== loc.country) || km > 700;
+  const band = abroad ? 1 : km > 400 ? 2 : km > 30 ? 3 : km > 8 ? 4 : km > 1.5 ? 5 : 6;
+  return loc.fromTag ? Math.min(band, 4) : band;
+}
+
+function friendLocation_(f, geo) {
+  const addresses = Object.keys(f).filter(k => /address/.test(k) && !/allergy/.test(k)).map(k => String(f[k] || '').trim()).filter(Boolean);
+  const tags = String(f.placetags || '').split(/[,;]/).map(t => t.trim()).filter(Boolean);
+  const options = addresses.map(q => ({ q: q, fromTag: false })).concat(tags.map(q => ({ q: q, fromTag: true })));
+  for (let i = 0; i < options.length; i++) {
+    const g = geo[options[i].q.toLowerCase()];
+    if (g) return { lat: g.lat, lng: g.lng, country: g.country, fromTag: options[i].fromTag };
+  }
+  return null;
+}
+
+// The friends near your current home base who are most overdue a meet-up and haven't been invited lately.
+function inviteSuggestions_(friends, rules, geo, prefs, limit) {
+  const base = (prefs.bases || []).find(b => b.name === prefs.current);
+  if (!base) return [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysSince = raw => {
+    const p = parseDateParts_(raw);
+    return p && p.y ? Math.max(0, Math.round((today - new Date(p.y, p.m, p.d)) / 86400000)) : null;
+  };
+  return friends.map(f => {
+    const tier = Math.min(parseInt(f.tier, 10) || 0, 6);
+    const loc = tier >= 1 && friendLocation_(f, geo);
+    if (!loc) return null;
+    const km = distanceKm_(base, loc);
+    if (km > SCORING.nearKm) return null;
+    const band = distanceBand_(km, base, loc);
+    const plan = parseDateParts_(f.nextplandate);
+    if (plan && plan.y && new Date(plan.y, plan.m, plan.d) >= today) return null;
+    if (String(f.nextplan || '').trim() && !plan) return null;
+    const invited = daysSince(f.lastinvited);
+    if (invited !== null && invited < SCORING.inviteSnoozeDays) return null;
+    const tr = rules.tiers[tier] || {}, pr = rules.proximity[band] || {};
+    const seeGoal = Math.min(1095, (pr.inviteGoal || SCORING.inviteGoal[band]) * (tr.seeMultiplier || SCORING.seeMultiplier[tier]));
+    const seen = daysSince(f.lastseenvideocalled), called = daysSince(f.lastcalled);
+    const effective = [seen, called === null ? null : called * 2].filter(x => x !== null);
+    const ratio = effective.length ? Math.min.apply(null, effective) / seeGoal : 9;
+    if (ratio < 0.8) return null;
+    return { f: f, seen: seen, score: (7 - tier) * Math.min(ratio, 9) };
+  }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+// Birthdays in the next two weeks, plus who to invite near your current home base.
+function emailWeeklyNudge(skipIfEmpty) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const friends = readFriends_(mainSheet_(ss), ss.getSpreadsheetTimeZone()).friends;
+  const tz = ss.getSpreadsheetTimeZone();
+  const friends = readFriends_(mainSheet_(ss), tz).friends;
+  const prefs = getPrefs_();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const soon = [];
   friends.forEach(f => {
-    const b = birthdayParts_(f.birthdaydate);
+    const b = parseDateParts_(f.birthdaydate);
     if (!b) return;
     let next = new Date(today.getFullYear(), b.m, b.d);
     if (next < today) next = new Date(today.getFullYear() + 1, b.m, b.d);
     const days = Math.round((next - today) / 86400000);
     if (days <= 14) soon.push({ f: f, days: days, next: next, age: b.y && b.y > 1910 ? next.getFullYear() - b.y : null });
   });
-  if (!soon.length && skipIfEmpty === true) return 'No birthdays in the next two weeks';
   soon.sort((a, b) => a.days - b.days);
-  const to = Session.getEffectiveUser().getEmail();
-  const items = soon.map(s => '<li style="margin-bottom:10px"><b>' + htmlEsc_(s.f.name) + '</b>: ' +
-    Utilities.formatDate(s.next, ss.getSpreadsheetTimeZone(), 'EEE d MMM') +
+  const invites = inviteSuggestions_(friends, readRules_(ss), readGeo_(ss), prefs, 5);
+  if (!soon.length && !invites.length && skipIfEmpty === true) return 'Nothing to send this week';
+
+  const muted = s => '<br><span style="color:#777">' + s + '</span>';
+  const bdayItems = soon.map(s => '<li style="margin-bottom:10px"><b>' + htmlEsc_(s.f.name) + '</b>: ' +
+    Utilities.formatDate(s.next, tz, 'EEE d MMM') +
     (s.days === 0 ? ' (today!)' : ' (in ' + s.days + ' day' + (s.days === 1 ? '' : 's') + ')') +
     (s.age ? ', turns ' + s.age : '') +
-    (s.f.gifteffort ? '<br><span style="color:#666">Gift effort: ' + htmlEsc_(s.f.gifteffort) + '</span>' : '') +
-    (s.f.futuregiftideas ? '<br><span style="color:#666">Ideas: ' + htmlEsc_(s.f.futuregiftideas) + '</span>' : '') +
-    '</li>').join('');
+    (s.f.gifteffort ? muted('Gift effort: ' + htmlEsc_(s.f.gifteffort)) : '') +
+    (s.f.futuregiftideas ? muted('Ideas: ' + htmlEsc_(s.f.futuregiftideas)) : '') + '</li>').join('');
+  const inviteItems = invites.map(s => '<li style="margin-bottom:10px"><b>' + htmlEsc_(s.f.name) + '</b> (tier ' + htmlEsc_(s.f.tier) + '): ' +
+    (s.seen === null ? 'no meet-up logged yet' : 'last seen ' + s.seen + ' days ago') +
+    (s.f.likes ? muted('Likes: ' + htmlEsc_(s.f.likes)) : '') +
+    (s.f.allergydietaryrequirements ? muted('Diet: ' + htmlEsc_(s.f.allergydietaryrequirements)) : '') + '</li>').join('');
+
+  const parts = [];
+  if (soon.length) parts.push(soon.length + ' birthday' + (soon.length === 1 ? '' : 's'));
+  if (invites.length) parts.push(invites.length + ' to invite near ' + prefs.current);
+  const to = Session.getEffectiveUser().getEmail();
   MailApp.sendEmail({
     to: to,
-    subject: '🎂 ' + (soon.length ? soon.length + ' birthday' + (soon.length === 1 ? '' : 's') + ' in the next two weeks' : 'No birthdays in the next two weeks'),
-    htmlBody: '<div style="font-family:Arial,sans-serif;color:#2b2118"><h2>🎂 Coming up</h2><ul style="padding-left:18px">' +
-      (items || '<li>Nothing in the next two weeks.</li>') + '</ul></div>'
+    subject: '🫶 This week: ' + (parts.join(' · ') || 'all quiet'),
+    htmlBody: '<div style="font-family:Arial,sans-serif;color:#2b2118">' +
+      '<h2>🎂 Birthdays coming up</h2><ul style="padding-left:18px">' + (bdayItems || '<li>None in the next two weeks.</li>') + '</ul>' +
+      (prefs.current
+        ? '<h2>💌 Who to invite near ' + htmlEsc_(prefs.current) + '</h2><ul style="padding-left:18px">' + (inviteItems || '<li>Everyone nearby is up to date.</li>') + '</ul>'
+        : '<p style="color:#777">Set a home base in the app to get invite suggestions here.</p>') +
+      '</div>'
   });
   return 'Sent to ' + to;
 }
@@ -483,7 +613,7 @@ function dailyJobs() {
   const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
   const now = new Date();
   if (Utilities.formatDate(now, tz, 'MM-dd') === '11-25') emailChristmasList();
-  if (Utilities.formatDate(now, tz, 'u') === '1') emailBirthdayDigest(true); // Mondays
+  if (Utilities.formatDate(now, tz, 'u') === '1') emailWeeklyNudge(true); // Mondays
 }
 
 function remindersOn_() {

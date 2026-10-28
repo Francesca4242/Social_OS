@@ -235,6 +235,7 @@
   <nav class="tabbar"><div class="tabbar-inner">
     <button class="tab" data-tab="today"><span class="ico">🏡</span>Today<span class="badge" id="todayBadge" hidden></span></button>
     <button class="tab" data-tab="friends"><span class="ico">👯</span>Friends</button>
+    <button class="tab" data-tab="places"><span class="ico">📍</span>Places</button>
     <button class="tab" data-tab="map"><span class="ico">🗺️</span>Map</button>
     <button class="tab" data-tab="dates"><span class="ico">🎂</span>Dates</button>
   </div></nav>
@@ -249,15 +250,24 @@
   const DEFAULTS = {
     contactGoal: { 1: 4, 2: 12, 3: 30, 4: 90, 5: 150, 6: 365 },
     seeMultiplier: { 1: 0.5, 2: 0.75, 3: 1, 4: 1.5, 5: 2, 6: 3 },
-    inviteGoal: { 1: 365, 2: 150, 3: 120, 4: 60, 5: 12, 6: 7 }
+    inviteGoal: { 1: 365, 2: 150, 3: 120, 4: 60, 5: 12, 6: 10 }
   };
   const MAX_SEE_GOAL = 1095;   // never ask to see anyone less than once every 3 years
   const BOOKED_FLOOR = 85;     // a booked plan keeps the "seen" score at least this high
+  const WEIGHTS = { contact: 0.6, seen: 0.4 }; // same split as the Friend Pulse formula in your sheet
+  const INVITE_SNOOZE = 14;    // after inviting someone, don't nag about them for this many days
+  const NEAR_KM = 30;          // how close counts as "near" a home base or place
+  // Distance from your current home base → the Rules sheet's proximity bands.
+  function distanceBand(km, base, loc) {
+    const abroad = (base.country && loc.country && base.country !== loc.country) || km > 700;
+    const band = abroad ? 1 : km > 400 ? 2 : km > 30 ? 3 : km > 8 ? 4 : km > 1.5 ? 5 : 6;
+    return loc.fromTag ? Math.min(band, 4) : band; // a place tag like "London" is only city-precise
+  }
   const CACHE_KEY = 'socialos.v2';
 
   /* ───────────── State ───────────── */
   const S = {
-    data: null, friends: [], byRow: {}, cols: {},
+    data: null, friends: [], byRow: {}, cols: {}, prefs: { bases: [], current: '', autoDistance: true }, openPlaces: new Set(),
     tab: 'today', todayFilter: 'all',
     query: '', tiers: new Set(), status: '', sort: 'priority',
     datesView: 'birthdays', sheet: null,
@@ -367,7 +377,12 @@
     const n = parseInt(f.tier, 10);
     const tier = n >= 1 ? Math.min(n, 6) : null;
     const pn = parseInt(f.proximityscore, 10);
-    const prox = pn >= 1 ? Math.min(pn, 6) : null;
+    const sheetProx = pn >= 1 ? Math.min(pn, 6) : null;
+    // Distance follows wherever you're living now, when we know where both of you are.
+    const loc = friendPlace(f), base = currentBase();
+    const km = base && loc && !loc.missing ? distanceKm(base, loc) : null;
+    const proxAuto = km != null && S.prefs.autoDistance;
+    const prox = proxAuto ? distanceBand(km, base, loc) : sheetProx;
     const tr = tier ? tierRule(tier) : null;
     const pr = proxRule(prox || 3);
     const contactGoal = tr ? tr.contactGoal : null;
@@ -388,16 +403,18 @@
     const contactScore = scoreFor(dContact, contactGoal);
     let seeScore = scoreFor(dSeenEff, seeGoal);
     if (booked && seeScore != null) seeScore = Math.max(seeScore, BOOKED_FLOOR);
-    const health = tier ? Math.round(contactScore * 0.4 + seeScore * 0.6) : null;
+    const health = tier ? Math.round(contactScore * WEIGHTS.contact + seeScore * WEIGHTS.seen) : null;
+    const dInvited = daysSince(f.lastinvited);
+    const recentlyInvited = dInvited != null && dInvited < INVITE_SNOOZE && !booked;
 
     const contactRatio = tier ? Math.min(9, dContact == null ? 9 : dContact / contactGoal) : 0;
     const seeRatio = tier ? Math.min(9, dSeenEff == null ? 9 : dSeenEff / seeGoal) : 0;
     const weight = tier ? 7 - tier : 0;
     const needsMessage = !!tier && contactRatio >= 1;
-    const needsBooking = !!tier && !booked && seeRatio >= 1;
+    const needsBooking = !!tier && !booked && !recentlyInvited && seeRatio >= 1;
 
     f.$ = {
-      tier, prox, tierLabel: tr ? tr.label : '', geography: prox ? proxRule(prox).geography : '',
+      tier, prox, sheetProx, proxAuto, km, loc, dInvited, recentlyInvited, contactRatio, seeRatio, tierLabel: tr ? tr.label : '', geography: prox ? proxRule(prox).geography : '',
       contactGoal, seeGoal, callCredit, dMsg, dSeen, dCall, dContact, dSeenEff,
       contactScore: contactScore == null ? null : Math.round(contactScore),
       seeScore: seeScore == null ? null : Math.round(seeScore), health,
@@ -409,6 +426,42 @@
       hay: Object.keys(f).filter(k => k[0] !== '$' && k[0] !== '_').map(k => f[k]).join(' ').toLowerCase()
     };
     return f;
+  }
+
+  /* ───────────── Home bases ───────────── */
+  const currentBase = () => (S.prefs.bases || []).find(b => b.name === S.prefs.current && b.lat != null) || null;
+  function recomputeAll() { S.friends.forEach(compute); }
+  function savePrefs(changes, msg) {
+    const prev = S.prefs;
+    S.prefs = Object.assign({}, S.prefs, changes);
+    recomputeAll(); render(); renderSheet();
+    if (S.prefs.current) geocodeMissing();
+    return api('setPrefs', JSON.stringify(S.prefs)).then(() => msg && toast(msg))
+      .catch(err => { S.prefs = prev; recomputeAll(); render(); renderSheet(); toast('⚠️ ' + err.message); });
+  }
+  // Friends near a base (by distance) or with a place tag, as one list.
+  function placeMembers(key) {
+    const [kind, name] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
+    if (kind === 'base') {
+      const b = (S.prefs.bases || []).find(x => x.name === name);
+      return b ? S.friends.filter(f => f.$.loc && !f.$.loc.missing && distanceKm(b, f.$.loc) <= NEAR_KM) : [];
+    }
+    if (kind === 'tag') return S.friends.filter(f => f.$.places.some(t => t.toLowerCase() === name.toLowerCase()));
+    return S.friends.slice();
+  }
+  function placeKeys() {
+    const bases = (S.prefs.bases || []).map(b => ({ key: 'base:' + b.name, label: b.name, base: true, current: b.name === S.prefs.current }));
+    const baseNames = bases.map(b => b.label.toLowerCase());
+    const tags = allValues('placetags').filter(v => !baseNames.includes(v.label.toLowerCase())).map(v => ({ key: 'tag:' + v.label, label: v.label }));
+    return [...bases.sort((a, b) => b.current - a.current), ...tags];
+  }
+  // Who most needs a meet-up: closer tiers first, then how overdue.
+  const seeRank = (a, b) => (b.$.needsBooking - a.$.needsBooking) || ((7 - (b.$.tier || 7)) * b.$.seeRatio - (7 - (a.$.tier || 7)) * a.$.seeRatio);
+  function inviteCandidates(key, tag) {
+    return placeMembers(key)
+      .filter(f => f.$.tier && !f.$.booked && !f.$.recentlyInvited)
+      .filter(f => !tag || f.$.tags.some(t => t.toLowerCase() === tag.toLowerCase()))
+      .sort(seeRank);
   }
 
   /* ───────────── Talking to the sheet ───────────── */
@@ -436,6 +489,7 @@
     S.cols = {};
     d.columns.forEach(c => { S.cols[c.key] = c; });
     S.geo = Object.assign({}, S.geo, d.geo || {});
+    S.prefs = Object.assign({ bases: [], current: '', autoDistance: true }, d.prefs || {});
     S.friends = d.friends.map(compute);
     S.byRow = {};
     S.friends.forEach(f => { S.byRow[f._row] = f; });
@@ -452,6 +506,7 @@
       if (open) { const f = S.friends.find(x => x.name === open); if (f) S.sheet.row = f._row; }
       render();
       if (S.sheet && !(document.activeElement && $('#sheetPanel').contains(document.activeElement))) renderSheet();
+      if (S.prefs.current) geocodeMissing();
     }).catch(err => toast('⚠️ ' + err.message)).finally(() => $('#syncBtn').classList.remove('spinning'));
   }
 
@@ -475,6 +530,7 @@
   }
 
   const LOGS = {
+    invite: { field: 'lastinvited', emoji: '💌', verb: 'Invited' },
     message: { field: 'lastcontacted', emoji: '💬', verb: 'Messaged' },
     call: { field: 'lastcalled', emoji: '📞', verb: 'Called' },
     meet: { field: 'lastseenvideocalled', emoji: '🤝', verb: 'Saw' }
@@ -521,6 +577,7 @@
     const $f = f.$, out = [];
     if ($f.planPast) out.push(`<span class="reason warn">❓ Did “${esc(f.nextplan || 'your plan')}” happen?</span>`);
     else if ($f.booked) out.push(`<span class="reason ok">✅ ${esc(f.nextplan || 'Booked')}${$f.planDate ? ' · ' + fmtDate($f.planDate) : ''}</span>`);
+    if ($f.recentlyInvited) out.push(`<span class="reason ok">💌 Invited ${ago($f.dInvited)}</span>`);
     if ($f.needsMessage) out.push(`<span class="reason warn">💬 ${$f.dContact == null ? 'never logged' : $f.dContact + 'd since contact'} · goal ${$f.contactGoal}d</span>`);
     if ($f.needsBooking) out.push(`<span class="reason warn">📅 Not seen ${$f.dSeenEff == null ? 'yet' : 'in ' + ago($f.dSeenEff).replace(' ago', '')}</span>`);
     if ($f.bday && $f.bday.days <= 14) out.push(`<span class="reason bday">🎂 ${$f.bday.days === 0 ? 'Birthday today!' : 'Birthday ' + inDays($f.bday.days)}</span>`);
@@ -569,6 +626,7 @@
     if (S.tab === 'today') $('#view').innerHTML = viewToday();
     else if (S.tab === 'friends') $('#view').innerHTML = viewFriends();
     else if (S.tab === 'dates') $('#view').innerHTML = viewDates();
+    else if (S.tab === 'places') $('#view').innerHTML = viewPlaces();
     else if (S.tab === 'map') renderMap();
     if (id && $('#' + id) && $('#' + id) !== active) { const el = $('#' + id); el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} }
   }
@@ -587,7 +645,16 @@
     const bdays = S.friends.filter(f => f.$.bday && f.$.bday.days <= 14).sort((a, b) => a.$.bday.days - b.$.bday.days);
     const healthy = all.filter(f => f.$.health >= 70).length;
 
-    let h = `<div class="hello"><h2>${greeting()}</h2><p>${healthy} of ${all.length} friendships are thriving${msg.length + book.length ? '. A few people would love to hear from you.' : '. Lovely work!'}</p></div>`;
+    const base = currentBase();
+    let h = `<div class="hello"><h2>${greeting()}</h2><p>${healthy} of ${all.length} friendships are thriving${msg.length + book.length ? '. A few people would love to hear from you.' : '. Lovely work!'}</p>
+      <button class="chip" style="margin-top:10px" data-act="bases">🏠 ${base ? 'Living in ' + esc(base.name) : 'Where are you living right now?'} <span class="n">▾</span></button></div>`;
+    if (base) {
+      const ideas = inviteCandidates('base:' + base.name).filter(f => f.$.seeRatio >= 0.8);
+      if (ideas.length) h += `<div class="banner" data-act="invite" data-v="base:${esc(base.name)}" style="cursor:pointer">
+        <div class="row"><div class="grow"><h3 style="margin:0">💌 Who to invite near ${esc(base.name)}</h3>
+          <div class="small muted">${ideas.slice(0, 3).map(f => esc(f.name.split(' ')[0])).join(', ')}${ideas.length > 3 ? ` and ${ideas.length - 3} more` : ''} are due a catch-up.</div></div>
+          <div class="row" style="gap:0">${ideas.slice(0, 3).map((f, i) => `<div style="margin-left:${i ? -12 : 0}px">${avatar(f, 'sm')}</div>`).join('')}</div></div></div>`;
+    }
 
     if (past.length) {
       h += `<div class="banner"><h3>❓ Did these happen?</h3>${past.map(f => `
@@ -692,6 +759,36 @@
       <div id="friendList">${list.length ? list.map(card).join('') : emptyState('🔍', 'No matches', 'Try a different word, or tap 🏷️ to see every tag.')}</div>`;
   }
 
+  function miniRow(f, extra = '') {
+    const $f = f.$;
+    const why = $f.booked ? `✅ ${esc(f.nextplan || 'Booked')}` : $f.recentlyInvited ? `💌 invited ${ago($f.dInvited)}`
+      : $f.dSeenEff == null ? 'no meet-up logged' : `seen ${ago($f.dSeen ?? $f.dSeenEff)}`;
+    return `<div class="list-row" data-open="${f._row}">${avatar(f, 'sm')}
+      <div class="grow"><div class="name" style="font-size:16px">${esc(f.name)}</div>
+        <div class="sub">${tierBadge(f)} · <span style="color:${$f.needsBooking ? 'var(--bad)' : 'inherit'}">${why}</span></div>${extra}</div>
+      <button class="act ${$f.booked ? 'on' : ''}" style="padding:8px 10px" data-act="book" data-row="${f._row}"><span class="e">📅</span></button></div>`;
+  }
+
+  function viewPlaces() {
+    const keys = placeKeys();
+    let h = `<div class="hello"><h2>📍 Places</h2><p>Who to see in each place, most overdue first.</p>
+      <button class="chip" style="margin-top:10px" data-act="bases">🏠 ${currentBase() ? 'Living in ' + esc(currentBase().name) : 'Add your home bases'} <span class="n">▾</span></button></div>`;
+    if (!keys.length) return h + emptyState('🧭', 'No places yet', 'Add place tags to friends, or add a home base.');
+    keys.forEach(p => {
+      const members = placeMembers(p.key).filter(f => f.$.tier).sort(seeRank);
+      if (!members.length && !p.base) return;
+      const due = members.filter(f => f.$.needsBooking).length;
+      const open = S.openPlaces.has(p.key);
+      const shown = open ? members : members.slice(0, 5);
+      h += `<div class="section-title" style="margin-bottom:2px">${p.base ? '🏠' : '📍'} ${esc(p.label)}${p.current ? ' <span class="chip tiny" style="background:var(--accent);color:var(--accent-ink)">home now</span>' : ''}
+          <button class="chip tiny" style="margin-left:auto" data-act="invite" data-v="${esc(p.key)}">💌 Invite</button></div>
+        <div class="small muted" style="margin:0 4px 10px;font-weight:700">${plural(members.length, 'friend')}${p.base ? ` within ${NEAR_KM} km` : ''}${due ? ` · <span style="color:var(--bad)">${due} to see</span>` : ''}</div>
+        ${shown.map(f => miniRow(f)).join('') || `<p class="muted small" style="margin:0 4px">Nobody within ${NEAR_KM} km yet.</p>`}
+        ${members.length > 5 ? `<button class="btn block" style="padding:8px" data-act="toggle-place" data-v="${esc(p.key)}">${open ? 'Show fewer' : `Show all ${members.length}`}</button>` : ''}`;
+    });
+    return h;
+  }
+
   function viewDates() {
     let h = `<div class="seg">
       <button class="${S.datesView === 'birthdays' ? 'on' : ''}" data-act="dates-view" data-v="birthdays">🎂 Birthdays</button>
@@ -721,7 +818,7 @@
       const noAddr = list.filter(f => isYes(f.christmascard) && !postalAddress(f)).length;
       h += `<div class="box">
         <div class="row"><div class="grow"><h3 style="margin:0">📬 Email me this list on 25 November</h3>
-          <div class="small muted">Plus a Monday birthday round-up. Goes to ${esc(S.data.email || 'you')}.</div></div>
+          <div class="small muted">Plus a Monday nudge with birthdays and who to invite. Goes to ${esc(S.data.email || 'you')}.</div></div>
           <button class="switch ${S.data.remindersOn ? 'on' : ''}" data-act="reminders" aria-label="Toggle reminders"></button></div>
         <div class="row" style="margin-top:12px">
           <button class="btn grow" data-act="email-xmas">📧 Email it now</button>
@@ -732,7 +829,7 @@
         <div class="grow"><div class="name" style="font-size:16px">${esc(f.name)}</div>
           <div class="small" style="white-space:pre-line">${postalAddress(f) ? esc(postalAddress(f)) : '<span style="color:var(--bad)">No address yet</span>'}</div>
           ${f.futuregiftideas ? `<div class="small muted">💡 ${esc(f.futuregiftideas)}</div>` : ''}
-          ${f.allergydietaryrequirements ? `<div class="small muted">⚠️ ${esc(f.allergydietaryrequirements)}</div>` : ''}</div>
+</div>
         <div class="meta">${isYes(f.christmascard) ? '💌' : ''}${isYes(f.christmasgifteffort) ? `<div class="small muted">🎁 ${esc(f.christmasgifteffort)}</div>` : ''}</div></div>`).join('');
       if (!list.length) h += emptyState('🎄', 'Nobody on the list yet', 'Turn on “Christmas card” on a friend’s page.');
     }
@@ -751,7 +848,7 @@
     if (!S.sheet) return;
     const k = S.sheet.kind;
     const html = k === 'friend' ? sheetFriend() : k === 'book' ? sheetBook() : k === 'add' ? sheetAdd()
-      : k === 'browse' ? sheetBrowse() : k === 'settings' ? sheetSettings() : '';
+      : k === 'browse' ? sheetBrowse() : k === 'settings' ? sheetSettings() : k === 'bases' ? sheetBases() : k === 'invite' ? sheetInvite() : '';
     if (!html) return closeSheet();
     $('#sheetPanel').innerHTML = `<button class="close" data-act="close" aria-label="Close">✕</button><div class="grabber"></div>` + html;
   }
@@ -803,10 +900,11 @@
         ${f.meeting ? `<div class="small muted">🤝 ${esc(f.meeting)}</div>` : ''}</div>
         ${ring($f.health, 64)}</div>
 
-      <div class="actions" style="margin:0 0 12px">
+      <div class="actions" style="margin:0 0 12px;grid-template-columns:repeat(5,1fr)">
         <button class="act" data-act="log" data-type="message" data-row="${f._row}"><span class="e">💬</span>Messaged</button>
         <button class="act" data-act="log" data-type="call" data-row="${f._row}"><span class="e">📞</span>Called</button>
         <button class="act" data-act="log" data-type="meet" data-row="${f._row}"><span class="e">🤝</span>Saw</button>
+        <button class="act" data-act="log" data-type="invite" data-row="${f._row}"><span class="e">💌</span>Invited</button>
         <button class="act ${$f.booked ? 'on' : ''}" data-act="book" data-row="${f._row}"><span class="e">📅</span>${$f.booked ? 'Booked' : 'Book'}</button>
       </div>
       ${phone ? `<div class="links" style="margin-bottom:12px">
@@ -827,10 +925,11 @@
         <div class="bar"><i style="width:${$f.seeScore}%;background:${healthColor($f.seeScore)}"></i></div>
         ${$f.dCall != null ? `<div class="small muted">📞 Last call ${ago($f.dCall)} (counts as ${$f.callCredit === 0.75 ? '¾' : '½'} of a visit)</div>` : ''}
         ` : `<div class="small muted">Pick a tier below to start tracking this friendship.</div>`}
+        ${$f.km != null ? `<div class="small" style="margin-top:10px">📍 About ${$f.km < 1 ? '<1' : Math.round($f.km)} km from ${esc(currentBase().name)} → <b>${esc(proxRule(distanceBand($f.km, currentBase(), $f.loc)).geography || 'band ' + distanceBand($f.km, currentBase(), $f.loc))}</b>${$f.proxAuto ? '' : ' <span class="muted">(auto distance is off)</span>'}</div>` : ''}
         <div class="field" style="margin:14px 0 8px"><span>Tier</span><div class="tier-pick">
           ${tiers.map(t => `<button class="${$f.tier === t ? 'on' : ''}" style="${$f.tier === t ? 'background:' + tierColor(t) : ''}" data-act="set-tier" data-row="${f._row}" data-v="${t}" ${editable('tier') ? '' : 'disabled'}>${t}</button>`).join('')}
         </div></div>
-        <label class="field" style="margin:0"><span>How far away</span>
+        <label class="field" style="margin:0"><span>${$f.proxAuto ? 'Distance in sheet (used when auto is off)' : 'How far away'}</span>
           <select class="input" data-save="proximityscore" data-row="${f._row}" ${editable('proximityscore') ? '' : 'disabled'}><option value="">–</option>${proxOpts}</select></label>
       </div>
 
@@ -845,8 +944,13 @@
         ${fieldInput(f, 'gifteffort', 'Birthday gift effort', { placeholder: 'e.g. Card, Small, Big', list: 'dl-effort' })}
         ${fieldInput(f, 'futuregiftideas', 'Future gift ideas', { type: 'textarea', placeholder: 'They mentioned…' })}
         ${fieldInput(f, 'giftslastbrought', 'Gifts last bought', { type: 'textarea' })}
-        ${fieldInput(f, 'allergydietaryrequirements', 'Allergies / diet', { placeholder: 'e.g. vegetarian, nuts' })}
         <datalist id="dl-effort">${allValues('gifteffort', single).concat(allValues('christmasgifteffort', single)).map(v => `<option value="${esc(v.label)}">`).join('')}</datalist>
+      </div>
+
+      <div class="box"><h3>🍽️ Food & preferences</h3>
+        ${fieldInput(f, 'allergydietaryrequirements', 'Allergies / dietary needs', { placeholder: 'e.g. vegetarian, nut allergy' })}
+        ${fieldInput(f, 'likes', 'Likes', { type: 'textarea', placeholder: 'Spicy food, jazz, natural wine…' })}
+        ${fieldInput(f, 'dislikes', 'Dislikes', { type: 'textarea', placeholder: 'Mushrooms, karaoke…' })}
       </div>
 
       <div class="box"><h3>🎄 Christmas</h3>
@@ -869,7 +973,7 @@
       </div>
 
       <div class="box"><h3>🕰️ Log something from earlier</h3>
-        <div class="row"><select class="input" id="pastType" style="width:auto"><option value="meet">🤝 Saw</option><option value="call">📞 Called</option><option value="message">💬 Messaged</option></select>
+        <div class="row"><select class="input" id="pastType" style="width:auto"><option value="meet">🤝 Saw</option><option value="call">📞 Called</option><option value="message">💬 Messaged</option><option value="invite">💌 Invited</option></select>
         <input class="input grow" type="date" id="pastDate" max="${iso(today())}" value="${iso(new Date(Date.now() - DAY))}">
         <button class="btn primary" data-act="log-past" data-row="${f._row}">Log</button></div>
       </div>
@@ -946,6 +1050,59 @@
         <p style="margin-top:8px">Mix them: <code>tag:uni place:london</code>. Use quotes for spaces: <code>tag:"board games"</code></p></div>`;
   }
 
+  function sheetBases() {
+    const bases = S.prefs.bases || [];
+    return `<div class="sheet-head"><div style="font-size:40px">🏠</div><div class="grow"><h2>Where you live</h2><div class="sub">Distances follow you when you move</div></div></div>
+      <div class="box">${bases.length ? bases.map(b => `<div class="row" style="padding:6px 0">
+          <button class="chip ${b.name === S.prefs.current ? 'on' : ''} grow" style="justify-content:flex-start" data-act="base-pick" data-v="${esc(b.name)}">${b.name === S.prefs.current ? '✓ ' : ''}${esc(b.name)} <span class="n">${esc(b.query || '')}</span></button>
+          <button class="btn" style="padding:8px 12px" data-act="base-remove" data-v="${esc(b.name)}" aria-label="Remove ${esc(b.name)}">✕</button></div>`).join('')
+        : '<p class="small muted" style="margin:0">No home bases yet. Add where you live (and anywhere you split your time).</p>'}
+        ${bases.length ? `<button class="chip" style="margin-top:6px" data-act="base-pick" data-v="">${S.prefs.current ? '' : '✓ '}Not set: use the distances in my sheet</button>` : ''}</div>
+      <div class="box"><h3>➕ Add a home base</h3>
+        <label class="field"><span>Name</span><input class="input" id="baseName" placeholder="London, Bath, Mum’s…"></label>
+        <label class="field"><span>Address or postcode</span><input class="input" id="baseQuery" placeholder="E8 1AA"></label>
+        <button class="btn primary block" data-act="base-add">Add & live here</button></div>
+      <div class="box"><div class="row"><div class="grow"><b>Work out distances automatically</b>
+        <div class="small muted">Uses each friend’s address (or place tag) and your current home base to pick their distance band. Friends without a known location keep the Proximity Score from your sheet.</div></div>
+        <button class="switch ${S.prefs.autoDistance ? 'on' : ''}" data-act="auto-distance"></button></div>
+        <table class="small" style="width:100%;margin-top:10px;border-collapse:collapse">
+          ${[[6, 'under 1.5 km'], [5, '1.5–8 km'], [4, '8–30 km (place tags max out here)'], [3, '30–400 km'], [2, 'over 400 km'], [1, 'another country']].map(([b, d]) =>
+            `<tr><td style="padding:4px 0">${b} · ${esc(proxRule(b).geography)}</td><td class="muted" style="text-align:right">${d}</td></tr>`).join('')}
+        </table></div>`;
+  }
+
+  function sheetInvite() {
+    const st = S.sheet;
+    const keys = placeKeys();
+    if (!st.place) st.place = currentBase() ? 'base:' + currentBase().name : (keys[0] ? keys[0].key : 'all:');
+    const list = inviteCandidates(st.place, st.tag);
+    if (!st.picked) st.picked = new Set(list.slice(0, st.size).map(f => f._row));
+    const foodish = /dinner|lunch|brunch|bbq|party|food|picnic/i.test(st.what);
+    const tags = allValues('tags').slice(0, 30);
+    return `<div class="sheet-head"><div style="font-size:40px">💌</div><div class="grow"><h2>Who to invite</h2><div class="sub">Overdue friends first, closest tiers first</div></div></div>
+      <label class="field"><span>Where</span><select class="input" id="invPlace">
+        ${keys.map(p => `<option value="${esc(p.key)}" ${st.place === p.key ? 'selected' : ''}>${p.base ? '🏠' : '📍'} ${esc(p.label)}</option>`).join('')}
+        <option value="all:" ${st.place === 'all:' ? 'selected' : ''}>🌍 Anywhere</option></select></label>
+      <div class="field"><span>What</span><div class="scroll-x">${['Coffee', 'Drinks', 'Dinner', 'Party', 'Walk', 'Day out'].map(w => `<button class="chip ${st.what === w ? 'on' : ''}" data-act="inv-what" data-v="${w}">${w}</button>`).join('')}</div></div>
+      <div class="row" style="gap:10px">
+        <label class="field grow"><span>How many</span><select class="input" id="invSize">${[2, 4, 6, 10, 20].map(n => `<option ${st.size === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="field grow"><span>Only people tagged</span><select class="input" id="invTag"><option value="">Anyone</option>${tags.map(t => `<option ${st.tag === t.label ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}</select></label>
+      </div>
+      <div class="section-title" style="margin-top:4px">${st.picked.size} picked <span class="count">of ${plural(list.length, 'suggestion')}</span></div>
+      ${list.length ? list.map(f => {
+        const on = st.picked.has(f._row);
+        const food = [f.allergydietaryrequirements && '⚠️ ' + esc(f.allergydietaryrequirements), foodish && f.dislikes && '👎 ' + esc(f.dislikes), f.likes && '❤️ ' + esc(f.likes)].filter(Boolean);
+        return `<div class="list-row" data-act="inv-toggle" data-row="${f._row}" style="${on ? 'outline:2px solid var(--accent)' : 'opacity:.75'}">
+          <div style="font-size:22px">${on ? '✅' : '⬜'}</div>${avatar(f, 'sm')}
+          <div class="grow"><div class="name" style="font-size:16px">${esc(f.name)}</div>
+            <div class="sub">${tierBadge(f)} · ${f.$.dSeenEff == null ? 'not seen yet' : 'seen ' + ago(f.$.dSeen ?? f.$.dSeenEff)}</div>
+            ${food.length ? `<div class="small muted">${food.join(' · ')}</div>` : ''}</div></div>`;
+      }).join('') : emptyState('🌈', 'Nobody to suggest', 'Everyone here is booked, recently invited or up to date.')}
+      <div class="row" style="position:sticky;bottom:-28px;background:var(--bg);padding:12px 0">
+        <button class="btn grow" data-act="inv-copy">📋 Copy names</button>
+        <button class="btn primary grow" data-act="inv-done" ${st.picked.size ? '' : 'disabled'}>💌 Mark ${st.picked.size} invited</button></div>`;
+  }
+
   function sheetSettings() {
     const rows = [1, 2, 3, 4, 5, 6].map(t => {
       const tr = tierRule(t);
@@ -954,14 +1111,16 @@
     const prox = [1, 2, 3, 4, 5, 6].map(p => `<tr><td>${p} · ${esc(proxRule(p).geography)}</td><td>${every(proxRule(p).inviteGoal)}</td></tr>`).join('');
     return `<div class="sheet-head"><div style="font-size:40px">⚙️</div><div class="grow"><h2>Settings</h2></div></div>
       <div class="box"><div class="row"><div class="grow"><b>📬 Reminder emails</b>
-        <div class="small muted">Christmas list on 25 November, and a birthday round-up on Mondays when someone’s birthday is within 2 weeks.</div></div>
+        <div class="small muted">Christmas list on 25 November. On Mondays: upcoming birthdays and who to invite near your home base.</div></div>
         <button class="switch ${S.data.remindersOn ? 'on' : ''}" data-act="reminders"></button></div>
-        <div class="row" style="margin-top:12px"><button class="btn grow" data-act="email-xmas">🎄 Send list now</button><button class="btn grow" data-act="email-bdays">🎂 Send birthdays now</button></div></div>
+        <div class="row" style="margin-top:12px"><button class="btn grow" data-act="email-xmas">🎄 Send list now</button><button class="btn grow" data-act="email-bdays">🫶 Send weekly nudge now</button></div></div>
+      <button class="btn block" style="margin-bottom:12px" data-act="bases">🏠 Home bases & distances</button>
       <a class="btn block" style="margin-bottom:12px" href="${esc(S.data.sheetUrl)}" target="_blank" rel="noopener">📄 Open my spreadsheet</a>
       <div class="box help"><h3>💗 How health works</h3>
-        <p><b>Health = 40% “in touch” + 60% “seen”.</b> Each part is 100 right after you log something, 70 when you hit the goal and 0 at twice the goal.</p>
+        <p><b>Health = ${WEIGHTS.contact * 100}% “in touch” + ${WEIGHTS.seen * 100}% “seen”</b>, the same split as your sheet’s formula. Each part is 100 right after you log something, 70 when you hit the goal and 0 at twice the goal, so overdue friends still rank against each other instead of all sitting at 0.</p>
         <p><b>In touch:</b> any message, call or meet-up counts. Goal comes from the tier.</p>
-        <p><b>Seen:</b> goal = the distance band’s invite goal × the tier’s multiplier. Closer friends and closer friendships mean more frequent meet-ups.</p>
+        <p><b>Seen:</b> goal = the distance band’s invite goal × the tier’s multiplier. Closer friends and closer friendships mean more frequent meet-ups. With a home base set, the distance band is worked out from where you’re living now.</p>
+        <p><b>Invites:</b> after you mark someone 💌 invited, they’re left off the “to book” lists for ${INVITE_SNOOZE} days.</p>
         <p><b>Calls & video:</b> count as half a visit (¾ for friends abroad or 5+ hours away). A booked plan keeps “seen” at ${BOOKED_FLOOR}+.</p>
         <table><tr><th>Tier</th><th>Contact</th><th>See multiplier</th></tr>${rows}</table>
         <table style="margin-top:10px"><tr><th>Distance</th><th>Invite goal</th></tr>${prox}</table>
@@ -971,11 +1130,12 @@
 
   /* ───────────── Map ───────────── */
   function friendPlace(f) {
-    const options = [postalAddress(f), ...addresses(f), ...f.$.places].map(s => String(s || '').trim()).filter(Boolean);
-    for (const q of options) {
-      const g = S.geo[q.toLowerCase()];
-      if (g) return { q, ...g };
-      if (g === undefined) return { q, missing: true };
+    const options = [postalAddress(f), ...addresses(f)].filter(Boolean).map(q => ({ q, fromTag: false }))
+      .concat(splitTags(f.placetags).map(q => ({ q, fromTag: true })));
+    for (const o of options) {
+      const g = S.geo[o.q.toLowerCase()];
+      if (g) return { ...o, ...g };
+      if (g === undefined) return { ...o, missing: true };
     }
     return null;
   }
@@ -1030,6 +1190,10 @@
       L.marker([p.lat, p.lng], { icon }).bindPopup(popup).addTo(S.layer);
       pts.push([p.lat, p.lng]);
     });
+    (S.prefs.bases || []).filter(b => b.lat != null).forEach(b => {
+      L.marker([b.lat, b.lng], { icon: L.divIcon({ className: '', html: `<div class="pin me" style="width:40px;height:40px;${b.name === S.prefs.current ? '' : 'opacity:.6'}">🏠</div>`, iconSize: [40, 40], iconAnchor: [20, 20] }) })
+        .bindPopup(`<b>🏠 ${esc(b.name)}</b>${b.name === S.prefs.current ? '<br>Living here now' : ''}`).addTo(S.layer);
+    });
     if (S.here) {
       L.circle([S.here.lat, S.here.lng], { radius: +$('#radius').value * 1000, color: '#ff6b4a', weight: 2, fillOpacity: .08 }).addTo(S.layer);
       L.marker([S.here.lat, S.here.lng], { icon: L.divIcon({ className: '', html: '<div class="pin me" style="width:40px;height:40px">⭐</div>', iconSize: [40, 40], iconAnchor: [20, 20] }) }).addTo(S.layer);
@@ -1065,6 +1229,7 @@
         const res = JSON.parse(await api('geocode', JSON.stringify(batch)));
         batch.forEach(q => { const k = q.toLowerCase().trim(); if (!(k in res)) res[k] = null; });
         Object.assign(S.geo, res);
+        recomputeAll(); render();
         drawPins(first); first = false;
       }
     } catch (e) { toast('⚠️ Map lookup: ' + e.message); }
@@ -1144,6 +1309,17 @@
     const v = a.dataset.v;
     switch (a.dataset.act) {
       case 'refresh': refresh(); break;
+      case 'bases': openSheet('bases'); break;
+      case 'base-pick': savePrefs({ current: v }, v ? `🏠 Living in ${v}. Distances updated` : 'Using the distances in your sheet'); break;
+      case 'base-remove': savePrefs({ bases: S.prefs.bases.filter(b => b.name !== v), current: S.prefs.current === v ? '' : S.prefs.current }); break;
+      case 'auto-distance': savePrefs({ autoDistance: !S.prefs.autoDistance }); break;
+      case 'base-add': addBase(); break;
+      case 'toggle-place': S.openPlaces.has(v) ? S.openPlaces.delete(v) : S.openPlaces.add(v); render(); break;
+      case 'invite': openSheet('invite', { place: v, size: 6, tag: '', what: 'Dinner', picked: null }); break;
+      case 'inv-what': S.sheet.what = v; renderSheet(); break;
+      case 'inv-toggle': S.sheet.picked.has(+a.dataset.row) ? S.sheet.picked.delete(+a.dataset.row) : S.sheet.picked.add(+a.dataset.row); rerenderInvite(); break;
+      case 'inv-copy': copy([...S.sheet.picked].map(r => S.byRow[r] && S.byRow[r].name).filter(Boolean).join(', '), 'Names copied 📋'); break;
+      case 'inv-done': markInvited([...S.sheet.picked].map(r => S.byRow[r]).filter(Boolean)); break;
       case 'settings': openSheet('settings'); break;
       case 'add': openSheet('add', { tier: null }); setTimeout(() => $('#addName') && $('#addName').focus(), 300); break;
       case 'close': closeSheet(); break;
@@ -1197,7 +1373,7 @@
         break;
       }
       case 'email-xmas': toast('📧 Sending…'); api('emailChristmasList').then(r => toast('🎄 ' + r)).catch(err => toast('⚠️ ' + err.message)); break;
-      case 'email-bdays': toast('📧 Sending…'); api('emailBirthdayDigest', false).then(r => toast('🎂 ' + r)).catch(err => toast('⚠️ ' + err.message)); break;
+      case 'email-bdays': toast('📧 Sending…'); api('emailWeeklyNudge', false).then(r => toast('🫶 ' + r)).catch(err => toast('⚠️ ' + err.message)); break;
       case 'add-tier': S.sheet.tier = +v; renderSheetKeepingInputs(); break;
       case 'add-save': submitNewFriend(); break;
       case 'locate': locateMe(); break;
@@ -1213,6 +1389,10 @@
       const f = rowOf(el);
       if (f && String(f[el.dataset.save] ?? '') !== el.value) save(f, { [el.dataset.save]: el.value }, { quiet: el.tagName !== 'SELECT' }).then(() => toast('✓ Saved')).catch(() => {});
     } else if (el.id === 'sortSelect') { S.sort = el.value; render(); }
+    else if (['invPlace', 'invSize', 'invTag'].includes(el.id)) {
+      S.sheet.place = $('#invPlace').value; S.sheet.size = +$('#invSize').value; S.sheet.tag = $('#invTag').value;
+      S.sheet.picked = null; renderSheet();
+    }
     else if (el.id === 'radius') drawPins('here');
   });
 
@@ -1255,6 +1435,41 @@
       try { document.execCommand('copy'); done(); } catch (e) { toast('Couldn’t copy'); }
       t.remove();
     }
+  }
+
+  function rerenderInvite() { const panel = $('#sheetPanel'), top = panel.scrollTop; renderSheet(); panel.scrollTop = top; }
+
+  async function addBase() {
+    const name = $('#baseName').value.trim(), query = $('#baseQuery').value.trim() || name;
+    if (!name) { toast('Give it a name, like “London”'); return; }
+    const btn = document.querySelector('[data-act="base-add"]');
+    btn.disabled = true; btn.textContent = 'Finding it…';
+    try {
+      const res = JSON.parse(await api('geocode', JSON.stringify([query])));
+      const g = res[query.toLowerCase()];
+      Object.assign(S.geo, res);
+      if (!g) throw new Error(`Couldn’t find “${query}”. Try a postcode.`);
+      const bases = (S.prefs.bases || []).filter(b => b.name !== name).concat([{ name, query, lat: g.lat, lng: g.lng, country: g.country || '' }]);
+      savePrefs({ bases, current: name }, `🏠 Living in ${name}. Distances updated`);
+    } catch (e) { toast('⚠️ ' + e.message); btn.disabled = false; btn.textContent = 'Add & live here'; }
+  }
+
+  function markInvited(list) {
+    if (!list.length) return;
+    const day = iso(today());
+    const updates = list.map(f => {
+      const changes = { lastinvited: day };
+      const last = parseDate(f.lastcontacted);
+      if (!last || last.noYear || iso(last) < day) changes.lastcontacted = day;
+      const prev = {}; Object.keys(changes).forEach(k => { prev[k] = f[k] ?? ''; });
+      Object.assign(f, changes); compute(f);
+      return { f, row: f._row, name: f.name, changes, prev };
+    });
+    closeSheet(); render(); confetti(); vibrate();
+    const send = key => write('updateMany', JSON.stringify(updates.map(u => ({ row: u.row, name: u.name, changes: u[key] }))));
+    send('changes').then(() => toast(`💌 Marked ${plural(list.length, 'friend')} as invited`, {
+      undo: () => { updates.forEach(u => { Object.assign(u.f, u.prev); compute(u.f); }); render(); send('prev').catch(err => toast('⚠️ ' + err.message)); }
+    })).catch(err => { updates.forEach(u => { Object.assign(u.f, u.prev); compute(u.f); }); render(); toast('⚠️ ' + err.message); });
   }
 
   function renderSheetKeepingInputs() {
