@@ -5,8 +5,8 @@
   <base target="_top">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <!-- Fonts load in the background: if they're slow or blocked, the app starts anyway with the phone's own font. -->
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
   <style>
     :root {
       --bg: #fbf6f0; --surface: #ffffff; --surface-2: #f5ede4; --border: #eadccd;
@@ -309,7 +309,6 @@
     }, 8000);
   </script>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script>
   /* ───────────── Settings you can tweak ───────────── */
   // Used when the Rules sheet doesn't say. Tier 1 = closest. Proximity 1 = furthest away.
@@ -1826,8 +1825,32 @@
   }
   function mapStatus(text) { const el = $('#mapStatus'); el.hidden = !text; el.textContent = text || ''; }
 
+  // The map library is only fetched when you first open the map, so it can never hold up the app.
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve();
+    if (S.leaflet) return S.leaflet;
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    document.head.appendChild(css);
+    S.leaflet = new Promise((resolve, reject) => {
+      const js = document.createElement('script');
+      js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+      js.onload = resolve;
+      js.onerror = () => { S.leaflet = null; reject(new Error('blocked')); };
+      document.head.appendChild(js);
+      setTimeout(() => reject(new Error('timeout')), 15000);
+    });
+    return S.leaflet;
+  }
+
   function renderMap() {
-    if (!window.L) { mapStatus('Map couldn’t load. Check your connection.'); return; }
+    if (!window.L) {
+      mapStatus('🗺️ Loading the map…');
+      loadLeaflet().then(() => { mapStatus(''); if (S.tab === 'map') renderMap(); })
+        .catch(() => mapStatus('The map couldn’t load (it may be blocked on this network). Everything else still works.'));
+      return;
+    }
     if (!S.map) {
       S.map = L.map('map', { zoomControl: false, attributionControl: true }).setView([54.2, -2.5], 5);
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
